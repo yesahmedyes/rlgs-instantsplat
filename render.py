@@ -32,6 +32,8 @@ from utils.sfm_utils import save_time
 from utils.camera_utils import generate_interpolated_path
 from utils.camera_utils import visualizer
 from arguments import ModelParams, PipelineParams, get_combined_args
+from lpipsPyTorch.lpips import LPIPS
+from utils.image_utils import psnr
 
 # def save_interpolate_pose(model_path, iter, n_views):
 
@@ -57,14 +59,13 @@ from arguments import ModelParams, PipelineParams, get_combined_args
 
 
 def save_interpolate_pose(model_path, iter, n_views, test_cameras_length):
-
     org_pose = np.load(model_path / f"pose/ours_{iter}/pose_optimized.npy")
     visualizer(org_pose, ["green" for _ in org_pose], model_path / f"pose/ours_{iter}/poses_optimized.png")
-    
-    n_interp = int(10 * 30 / (n_views-test_cameras_length))  # 10second, fps=30
+
+    n_interp = int(10 * 30 / (n_views - test_cameras_length))  # 10second, fps=30
     all_inter_pose = []
-    for i in range(n_views-1-test_cameras_length):
-        tmp_inter_pose = generate_interpolated_path(poses=org_pose[i:i+2], n_interp=n_interp)
+    for i in range(n_views - 1 - test_cameras_length):
+        tmp_inter_pose = generate_interpolated_path(poses=org_pose[i : i + 2], n_interp=n_interp)
         all_inter_pose.append(tmp_inter_pose)
     all_inter_pose = np.concatenate(all_inter_pose, axis=0)
     all_inter_pose = np.concatenate([all_inter_pose, org_pose[-1][:3, :].reshape(1, 3, 4)], axis=0)
@@ -79,6 +80,7 @@ def save_interpolate_pose(model_path, iter, n_views, test_cameras_length):
     visualizer(inter_pose, ["blue" for _ in inter_pose], model_path / f"pose/ours_{iter}/poses_interpolated.png")
     np.save(model_path / f"pose/ours_{iter}/pose_interpolated.npy", inter_pose)
 
+
 def images_to_video(image_folder, output_video_path, fps=30):
     """
     Convert images in a folder to a video.
@@ -91,12 +93,13 @@ def images_to_video(image_folder, output_video_path, fps=30):
     images = []
 
     for filename in sorted(os.listdir(image_folder)):
-        if filename.endswith(('.png', '.jpg', '.jpeg', '.JPG', '.PNG')):
+        if filename.endswith((".png", ".jpg", ".jpeg", ".JPG", ".PNG")):
             image_path = os.path.join(image_folder, filename)
             image = imageio.imread(image_path)
             images.append(image)
 
     imageio.mimwrite(output_video_path, images, fps=fps)
+
 
 # def render_set(model_path, name, iteration, views, gaussians, pipeline, background):
 #     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
@@ -115,38 +118,47 @@ def images_to_video(image_folder, output_video_path, fps=30):
 #             rendering, os.path.join(render_path, "{0:05d}".format(idx) + ".png")
 #         )
 #         if name != "interp":
-#             torchvision.utils.save_image(   
+#             torchvision.utils.save_image(
 #                 gt, os.path.join(gts_path, "{0:05d}".format(idx) + ".png")
 #             )
+
+
 def render_set(model_path, name, iteration, views, gaussians, pipeline, background):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
 
     makedirs(render_path, exist_ok=True)
     makedirs(gts_path, exist_ok=True)
-    ssim_by_cam = {}
+
+    lpips_fn = LPIPS(net_type="vgg").cuda()  # Initialize LPIPS model once
+    metrics_by_cam = {}
+
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         camera_pose = get_tensor_from_camera(view.world_view_transform.transpose(0, 1))
-        rendering = render(
-            view, gaussians, pipeline, background, camera_pose=camera_pose
-        )["render"]
+        rendering = render(view, gaussians, pipeline, background, camera_pose=camera_pose)["render"]
         gt = view.original_image[0:3, :, :]
         gt_image = view.original_image.cuda()
+
         ssim_value = ssim(rendering, gt_image)
-        torchvision.utils.save_image(
-            rendering, os.path.join(render_path, "{0:05d}".format(idx) + ".png")
-        )
+        psnr_value = psnr(rendering, gt_image)
+        lpips_value = lpips_fn(rendering, gt_image).mean()  # Calculate LPIPS
+
+        torchvision.utils.save_image(rendering, os.path.join(render_path, "{0:05d}".format(idx) + ".png"))
         if name != "interp":
-            torchvision.utils.save_image(   
-                gt, os.path.join(gts_path, "{0:05d}".format(idx) + ".png"))
-            # Record SSIM by camera name
+            torchvision.utils.save_image(gt, os.path.join(gts_path, "{0:05d}".format(idx) + ".png"))
+
         camname = getattr(view, "camname", f"cam_{idx}")
-        ssim_by_cam[camname] = float(ssim_value.detach().mean().item() if torch.is_tensor(ssim_value) else ssim_value)
+        metrics_by_cam[camname] = {
+            "ssim": float(ssim_value.detach().mean().item() if torch.is_tensor(ssim_value) else ssim_value),
+            "psnr": float(psnr_value.detach().mean().item() if torch.is_tensor(psnr_value) else psnr_value),
+            "lpips": float(lpips_value.detach().mean().item() if torch.is_tensor(lpips_value) else lpips_value),
+        }
 
     # Write the JSON next to the renders
-    json_path = os.path.join(render_path, "ssim_by_cam.json")
+    json_path = os.path.join(render_path, "metrics_by_cam.json")
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(ssim_by_cam, f, indent=2, ensure_ascii=False)
+        json.dump(metrics_by_cam, f, indent=2, ensure_ascii=False)
+
 
 def render_set_optimize(model_path, name, iteration, views, gaussians, pipeline, background):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
@@ -168,17 +180,13 @@ def render_set_optimize(model_path, name, iteration, views, gaussians, pipeline,
 
         camera_tensor_T = camera_pose[-3:].requires_grad_()
         camera_tensor_q = camera_pose[:4].requires_grad_()
-        pose_optimizer = torch.optim.Adam([
-            {"params": [camera_tensor_T], "lr": 0.003},
-            {"params": [camera_tensor_q], "lr": 0.001}
-        ],
-        betas=(0.9, 0.999),
-        weight_decay=1e-4
+        pose_optimizer = torch.optim.Adam(
+            [{"params": [camera_tensor_T], "lr": 0.003}, {"params": [camera_tensor_q], "lr": 0.001}], betas=(0.9, 0.999), weight_decay=1e-4
         )
 
         # Add a learning rate scheduler
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(pose_optimizer, T_max=num_iter, eta_min=0.0001)
-        with tqdm(total=num_iter, desc=f"Tracking Time Step: {idx+1}", leave=True) as progress_bar:
+        with tqdm(total=num_iter, desc=f"Tracking Time Step: {idx + 1}", leave=True) as progress_bar:
             candidate_q = camera_tensor_q.clone().detach()
             candidate_T = camera_tensor_T.clone().detach()
             current_min_loss = float(1e20)
@@ -186,7 +194,9 @@ def render_set_optimize(model_path, name, iteration, views, gaussians, pipeline,
             initial_loss = None
 
             for iteration in range(num_iter):
-                rendering = render(view, gaussians, pipeline, background, camera_pose=torch.cat([camera_tensor_q, camera_tensor_T]))["render"]
+                rendering = render(view, gaussians, pipeline, background, camera_pose=torch.cat([camera_tensor_q, camera_tensor_T]))[
+                    "render"
+                ]
                 black_hole_threshold = 0.0
                 mask = (rendering > black_hole_threshold).float()
                 loss = l1_loss_mask(rendering, gt, mask)
@@ -213,13 +223,9 @@ def render_set_optimize(model_path, name, iteration, views, gaussians, pipeline,
         optimal_pose = torch.cat([camera_tensor_q, camera_tensor_T])
         # print("optimal_pose-camera_pose: ", optimal_pose-camera_pose)
         rendering_opt = render(view, gaussians, pipeline, background, camera_pose=optimal_pose)["render"]
-            
-        torchvision.utils.save_image(
-            rendering_opt, os.path.join(render_path, view.image_name + ".png")
-        )
-        torchvision.utils.save_image(
-            gt, os.path.join(gts_path, view.image_name + ".png")
-        )
+
+        torchvision.utils.save_image(rendering_opt, os.path.join(render_path, view.image_name + ".png"))
+        torchvision.utils.save_image(gt, os.path.join(gts_path, view.image_name + ".png"))
 
     if args.test_fps:
         print(">>> Calculate FPS: ")
@@ -228,14 +234,14 @@ def render_set_optimize(model_path, name, iteration, views, gaussians, pipeline,
             start = perf_counter()
             _ = render(view, gaussians, pipeline, background, camera_pose=optimal_pose)
             end = perf_counter()
-            fps_list.append(end - start)        
+            fps_list.append(end - start)
         fps_list.sort()
         fps_list = fps_list[100:900]
         fps = 1 / (sum(fps_list) / len(fps_list))
         print(">>> FPS = ", fps)
-        with open(f"{model_path}/total_fps.json", 'a') as fp:
-            json.dump(f'{fps}', fp, indent=True)
-            fp.write('\n')
+        with open(f"{model_path}/total_fps.json", "a") as fp:
+            json.dump(f"{fps}", fp, indent=True)
+            fp.write("\n")
 
 
 def render_sets(
@@ -254,8 +260,8 @@ def render_sets(
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
     # if not skip_train:
-    if not skip_train and not args.infer_video and not dataset.eval:        
-        optimized_pose = np.load(Path(args.model_path) / 'pose' / f'ours_{iteration}' / 'pose_optimized.npy')
+    if not skip_train and not args.infer_video and not dataset.eval:
+        optimized_pose = np.load(Path(args.model_path) / "pose" / f"ours_{iteration}" / "pose_optimized.npy")
         viewpoint_stack = loadCameras(optimized_pose, scene.getTrainCameras())
         render_set(
             dataset.model_path,
@@ -280,11 +286,11 @@ def render_sets(
                 background,
             )
         end_time = time()
-        save_time(dataset.model_path, '[4] render', end_time - start_time)
+        save_time(dataset.model_path, "[4] render", end_time - start_time)
 
     if args.infer_video and not dataset.eval:
         save_interpolate_pose(Path(args.model_path), iteration, args.n_views, len(scene.getTestCameras()))
-        interp_pose = np.load(Path(args.model_path) / 'pose' / f'ours_{iteration}' / 'pose_interpolated.npy')
+        interp_pose = np.load(Path(args.model_path) / "pose" / f"ours_{iteration}" / "pose_interpolated.npy")
         viewpoint_stack = loadCameras(interp_pose, scene.getTrainCameras())
         render_set(
             dataset.model_path,
@@ -295,8 +301,8 @@ def render_sets(
             pipeline,
             background,
         )
-        image_folder = os.path.join(dataset.model_path, f'interp/ours_{iteration}/renders')
-        output_video_file = os.path.join(dataset.model_path, f'interp/ours_{iteration}/interp_{args.n_views}_view.mp4')
+        image_folder = os.path.join(dataset.model_path, f"interp/ours_{iteration}/renders")
+        output_video_file = os.path.join(dataset.model_path, f"interp/ours_{iteration}/interp_{args.n_views}_view.mp4")
         images_to_video(image_folder, output_video_file, fps=30)
 
 
@@ -308,7 +314,7 @@ if __name__ == "__main__":
     parser.add_argument("--iterations", default=-1, type=int)
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
-    parser.add_argument("--quiet", action="store_true")    
+    parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--optim_test_pose_iter", default=500, type=int)
     parser.add_argument("--infer_video", action="store_true")
     parser.add_argument("--test_fps", action="store_true")

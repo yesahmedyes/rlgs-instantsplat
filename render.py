@@ -32,7 +32,7 @@ from utils.sfm_utils import save_time
 from utils.camera_utils import generate_interpolated_path
 from utils.camera_utils import visualizer
 from arguments import ModelParams, PipelineParams, get_combined_args
-from lpipsPyTorch.lpips import LPIPS
+from lpipsPyTorch.modules.lpips import LPIPS
 from utils.image_utils import psnr
 
 # def save_interpolate_pose(model_path, iter, n_views):

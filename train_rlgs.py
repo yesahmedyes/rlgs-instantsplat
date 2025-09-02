@@ -63,6 +63,7 @@ except:
 #     colmap_poses = torch.stack(colmap_poses).detach().cpu().numpy()
 #     np.save(path, colmap_poses)
 
+
 def save_pose(path, quat_pose, train_cams, llffhold=2):
     # Get camera IDs and convert quaternion poses to camera matrices
     camera_ids = [cam.colmap_id for cam in train_cams]
@@ -82,14 +83,15 @@ def save_pose(path, quat_pose, train_cams, llffhold=2):
         if cam_id in camera_ids:
             idx = camera_ids.index(cam_id)
             pose = world_to_camera[idx]
-        # else:
-        #     # Fill missing camera IDs with identity pose (4x4) or skip
-        #     pose = torch.eye(4)  # Identity matrix as placeholder
+            # else:
+            #     # Fill missing camera IDs with identity pose (4x4) or skip
+            #     pose = torch.eye(4)  # Identity matrix as placeholder
             colmap_poses.append(pose)
 
     # Convert to numpy array and save
     colmap_poses = torch.stack(colmap_poses).detach().cpu().numpy()
     np.save(path, colmap_poses)
+
 
 def load_and_prepare_confidence(confidence_path, device="cuda", scale=(0.1, 1.0)):
     """
@@ -190,7 +192,6 @@ def training_with_rlgs(
         # Policy state
         hidden_state = None
         prev_loss = None
-        reward_baseline = 0.0
 
         print(f"✅ RLGS initialized with {len(rlgs_config.lr_groups)} LR groups")
     else:
@@ -351,9 +352,6 @@ def training_with_rlgs(
             phase_loss_avg = phase_loss / rlgs_config.K
             prev_loss = phase_loss_avg
 
-            # Update baseline (simple moving average)
-            reward_baseline = 0.9 * reward_baseline + 0.1 * best_reward
-
             # Update policy
             policy_info = phase_runner.update_policy(
                 policy=policy,
@@ -361,7 +359,6 @@ def training_with_rlgs(
                 state=state,
                 action=best_action,
                 reward=best_reward,
-                baseline=reward_baseline,
                 log_prob=best_log_prob,
                 hidden_state=hidden_state,
             )

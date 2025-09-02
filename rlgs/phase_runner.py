@@ -38,23 +38,6 @@ class PhaseRunner:
     ) -> Tuple[torch.Tensor, torch.Tensor, float, torch.Tensor]:
         """
         Try multiple actions and return the best one based on reward.
-
-        Args:
-            policy: RL policy for action sampling
-            state: Current training state
-            gaussians: Gaussian model
-            reward_views: Views for reward computation
-            render_func: Rendering function
-            render_args: Arguments for rendering
-            group_mapping: Parameter group to action mapping
-            original_lrs: Original learning rates
-            hidden_state: Policy hidden state
-
-        Returns:
-            best_action: Best action found
-            best_log_prob: Log probability of best action
-            best_reward: Best reward achieved
-            new_hidden: Updated hidden state
         """
         best_action = None
         best_log_prob = None
@@ -64,14 +47,21 @@ class PhaseRunner:
         # Save initial state
         initial_state = self._save_model_state(gaussians)
 
+        # 1. COMPUTE BASELINE ONCE: Evaluate with default parameters (h_orig)
+        baseline_loss = self._evaluate_baseline(gaussians, reward_views, render_func, render_args, initial_state)
+
+        # 2. TRY MULTIPLE SAMPLED ACTIONS
         for _ in range(self.N_lr):
             # Sample action
             action, log_prob, new_hidden = policy.sample_action(state, hidden_state)
 
-            # Apply action and run short rollout
-            reward = self._evaluate_action(
+            # Evaluate sampled action
+            sampled_loss = self._evaluate_action(
                 action, gaussians, reward_views, render_func, render_args, group_mapping, original_lrs, initial_state
             )
+
+            # Compute reward: R = M(h_orig) - M(h)
+            reward = baseline_loss - sampled_loss
 
             if reward > best_reward:
                 best_reward = reward
@@ -79,6 +69,40 @@ class PhaseRunner:
                 best_log_prob = log_prob.clone()
 
         return best_action, best_log_prob, best_reward, new_hidden.detach() if new_hidden is not None else None
+
+    def _evaluate_baseline(
+        self,
+        gaussians,
+        reward_views: List,
+        render_func: Callable,
+        render_args: tuple,
+        initial_state: dict,
+    ) -> float:
+        """Evaluate baseline performance with default hyperparameters (no LR scaling)"""
+
+        # Restore initial state
+        self._restore_model_state(gaussians, initial_state)
+        # Keep original learning rates (no scaling applied)
+
+        total_loss = 0.0
+        for step in range(self.K):
+            view_idx = step % len(reward_views)
+            viewpoint_cam = reward_views[view_idx]
+            pose = gaussians.get_RT(viewpoint_cam.uid)
+
+            render_pkg = render_func(viewpoint_cam, gaussians, *render_args, camera_pose=pose)
+            image = render_pkg["render"]
+            gt_image = viewpoint_cam.original_image.cuda()
+
+            loss = torch.mean(torch.abs(image - gt_image))
+            loss.backward()
+
+            gaussians.optimizer.step()
+            gaussians.optimizer.zero_grad(set_to_none=True)
+
+            total_loss += loss.item()
+
+        return total_loss / self.K
 
     def _evaluate_action(
         self,
@@ -91,7 +115,7 @@ class PhaseRunner:
         original_lrs: Dict[str, float],
         initial_state: dict,
     ) -> float:
-        """Evaluate an action by running a short simulation"""
+        """Evaluate a sampled action and return average loss"""
 
         # Restore initial state
         self._restore_model_state(gaussians, initial_state)
@@ -99,21 +123,17 @@ class PhaseRunner:
         # Apply learning rate scaling
         apply_lr_scaling(gaussians.optimizer, action, group_mapping, original_lrs)
 
-        # Run short rollout (K steps)
         total_loss = 0.0
 
-        for step in range(min(self.K, len(reward_views) * 3)):  # Limit steps
-            # Pick reward view
+        for step in range(self.K):
             view_idx = step % len(reward_views)
             viewpoint_cam = reward_views[view_idx]
             pose = gaussians.get_RT(viewpoint_cam.uid)
 
-            # Render and compute loss
             render_pkg = render_func(viewpoint_cam, gaussians, *render_args, camera_pose=pose)
             image = render_pkg["render"]
             gt_image = viewpoint_cam.original_image.cuda()
 
-            # Simple L1 loss for reward
             loss = torch.mean(torch.abs(image - gt_image))
             loss.backward()
 
@@ -125,8 +145,7 @@ class PhaseRunner:
         # Restore original learning rates
         restore_optimizer_lrs(gaussians.optimizer, original_lrs)
 
-        # Return negative loss as reward (higher is better)
-        return -total_loss / min(self.K, len(reward_views) * 3)
+        return total_loss / self.K
 
     def _save_model_state(self, gaussians) -> dict:
         return {
@@ -164,17 +183,13 @@ class PhaseRunner:
         state: torch.Tensor,
         action: torch.Tensor,
         reward: float,
-        baseline: float,
         log_prob: torch.Tensor,
         hidden_state: Optional[torch.Tensor] = None,
     ):
-        """Update policy using REINFORCE with entropy bonus"""
+        """Update policy using vanilla REINFORCE with entropy bonus"""
 
-        # Compute advantage
-        advantage = reward - baseline
-
-        # Policy loss: -log_prob * advantage
-        policy_loss = -log_prob * advantage
+        # Policy loss: -log_prob * reward (no baseline subtraction)
+        policy_loss = -log_prob * reward
 
         # Entropy bonus
         action_dist, _ = policy.forward(state, hidden_state)
@@ -197,5 +212,5 @@ class PhaseRunner:
             "policy_loss": policy_loss.item(),
             "entropy_loss": entropy_loss.item(),
             "total_loss": total_loss.item(),
-            "advantage": advantage,
+            "reward": reward,
         }

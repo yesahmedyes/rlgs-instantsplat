@@ -1,0 +1,11 @@
+[tool.ruff]
+line-length = 140
+target-version = "py312"  # adjust as needed
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.ruff.lint]
+extend-ignore = ["E501"]  # don't warn about long lines; formatter handles wrapping

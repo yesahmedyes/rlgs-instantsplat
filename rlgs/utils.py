@@ -23,10 +23,14 @@ def apply_lr_scaling(optimizer: torch.optim.Optimizer, action: torch.Tensor, gro
 
     Args:
         optimizer: PyTorch optimizer
-        action: LR scaling factors [num_groups]
+        action: LR scaling factors [num_groups] or [batch_size, num_groups]
         group_mapping: Mapping from group name to action index
         original_lrs: Original learning rates for each group
     """
+    # Handle batch dimension if present
+    if action.dim() > 1:
+        action = action.squeeze(0)  # Remove batch dimension
+
     for param_group in optimizer.param_groups:
         group_name = param_group.get("name", "")
 

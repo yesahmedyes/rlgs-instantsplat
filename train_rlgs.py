@@ -47,22 +47,49 @@ except:
     FUSED_SSIM_AVAILABLE = False
 
 
+# def save_pose(path, quat_pose, train_cams, llffhold=2):
+#     # Get camera IDs and convert quaternion poses to camera matrices
+#     camera_ids = [cam.colmap_id for cam in train_cams]
+#     world_to_camera = [get_camera_from_tensor(quat) for quat in quat_pose]
+
+#     # Reorder poses according to colmap IDs
+#     colmap_poses = []
+#     for i in range(len(camera_ids)):
+#         idx = camera_ids.index(i + 1)  # Find position of camera i+1
+#         pose = world_to_camera[idx]
+#         colmap_poses.append(pose)
+
+#     # Convert to numpy array and save
+#     colmap_poses = torch.stack(colmap_poses).detach().cpu().numpy()
+#     np.save(path, colmap_poses)
+
 def save_pose(path, quat_pose, train_cams, llffhold=2):
     # Get camera IDs and convert quaternion poses to camera matrices
     camera_ids = [cam.colmap_id for cam in train_cams]
     world_to_camera = [get_camera_from_tensor(quat) for quat in quat_pose]
 
     # Reorder poses according to colmap IDs
+    # colmap_poses = []
+    # for i in range(len(camera_ids)):
+    #     idx = camera_ids.index(i + 1)  # Find position of camera i+1
+    #     pose = world_to_camera[idx]
+    #     colmap_poses.append(pose)
+
     colmap_poses = []
-    for i in range(len(camera_ids)):
-        idx = camera_ids.index(i + 1)  # Find position of camera i+1
-        pose = world_to_camera[idx]
-        colmap_poses.append(pose)
+    max_cam_id = max(camera_ids)  # largest ID present
+
+    for cam_id in range(1, max_cam_id + 1):
+        if cam_id in camera_ids:
+            idx = camera_ids.index(cam_id)
+            pose = world_to_camera[idx]
+        # else:
+        #     # Fill missing camera IDs with identity pose (4x4) or skip
+        #     pose = torch.eye(4)  # Identity matrix as placeholder
+            colmap_poses.append(pose)
 
     # Convert to numpy array and save
     colmap_poses = torch.stack(colmap_poses).detach().cpu().numpy()
     np.save(path, colmap_poses)
-
 
 def load_and_prepare_confidence(confidence_path, device="cuda", scale=(0.1, 1.0)):
     """

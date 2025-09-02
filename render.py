@@ -33,13 +33,37 @@ from utils.camera_utils import generate_interpolated_path
 from utils.camera_utils import visualizer
 from arguments import ModelParams, PipelineParams, get_combined_args
 
-def save_interpolate_pose(model_path, iter, n_views):
+# def save_interpolate_pose(model_path, iter, n_views):
+
+#     org_pose = np.load(model_path / f"pose/ours_{iter}/pose_optimized.npy")
+#     visualizer(org_pose, ["green" for _ in org_pose], model_path / f"pose/ours_{iter}/poses_optimized.png")
+#     n_interp = int(10 * 30 / n_views)  # 10second, fps=30
+#     all_inter_pose = []
+#     for i in range(n_views-1):
+#         tmp_inter_pose = generate_interpolated_path(poses=org_pose[i:i+2], n_interp=n_interp)
+#         all_inter_pose.append(tmp_inter_pose)
+#     all_inter_pose = np.concatenate(all_inter_pose, axis=0)
+#     all_inter_pose = np.concatenate([all_inter_pose, org_pose[-1][:3, :].reshape(1, 3, 4)], axis=0)
+
+#     inter_pose_list = []
+#     for p in all_inter_pose:
+#         tmp_view = np.eye(4)
+#         tmp_view[:3, :3] = p[:3, :3]
+#         tmp_view[:3, 3] = p[:3, 3]
+#         inter_pose_list.append(tmp_view)
+#     inter_pose = np.stack(inter_pose_list, 0)
+#     visualizer(inter_pose, ["blue" for _ in inter_pose], model_path / f"pose/ours_{iter}/poses_interpolated.png")
+#     np.save(model_path / f"pose/ours_{iter}/pose_interpolated.npy", inter_pose)
+
+
+def save_interpolate_pose(model_path, iter, n_views, test_cameras_length):
 
     org_pose = np.load(model_path / f"pose/ours_{iter}/pose_optimized.npy")
     visualizer(org_pose, ["green" for _ in org_pose], model_path / f"pose/ours_{iter}/poses_optimized.png")
-    n_interp = int(10 * 30 / n_views)  # 10second, fps=30
+    
+    n_interp = int(10 * 30 / (n_views-test_cameras_length))  # 10second, fps=30
     all_inter_pose = []
-    for i in range(n_views-1):
+    for i in range(n_views-1-test_cameras_length):
         tmp_inter_pose = generate_interpolated_path(poses=org_pose[i:i+2], n_interp=n_interp)
         all_inter_pose.append(tmp_inter_pose)
     all_inter_pose = np.concatenate(all_inter_pose, axis=0)
@@ -54,7 +78,6 @@ def save_interpolate_pose(model_path, iter, n_views):
     inter_pose = np.stack(inter_pose_list, 0)
     visualizer(inter_pose, ["blue" for _ in inter_pose], model_path / f"pose/ours_{iter}/poses_interpolated.png")
     np.save(model_path / f"pose/ours_{iter}/pose_interpolated.npy", inter_pose)
-
 
 def images_to_video(image_folder, output_video_path, fps=30):
     """
@@ -75,26 +98,55 @@ def images_to_video(image_folder, output_video_path, fps=30):
 
     imageio.mimwrite(output_video_path, images, fps=fps)
 
+# def render_set(model_path, name, iteration, views, gaussians, pipeline, background):
+#     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
+#     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
+
+#     makedirs(render_path, exist_ok=True)
+#     makedirs(gts_path, exist_ok=True)
+
+#     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
+#         camera_pose = get_tensor_from_camera(view.world_view_transform.transpose(0, 1))
+#         rendering = render(
+#             view, gaussians, pipeline, background, camera_pose=camera_pose
+#         )["render"]
+#         gt = view.original_image[0:3, :, :]
+#         torchvision.utils.save_image(
+#             rendering, os.path.join(render_path, "{0:05d}".format(idx) + ".png")
+#         )
+#         if name != "interp":
+#             torchvision.utils.save_image(   
+#                 gt, os.path.join(gts_path, "{0:05d}".format(idx) + ".png")
+#             )
 def render_set(model_path, name, iteration, views, gaussians, pipeline, background):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
 
     makedirs(render_path, exist_ok=True)
     makedirs(gts_path, exist_ok=True)
-
+    ssim_by_cam = {}
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         camera_pose = get_tensor_from_camera(view.world_view_transform.transpose(0, 1))
         rendering = render(
             view, gaussians, pipeline, background, camera_pose=camera_pose
         )["render"]
         gt = view.original_image[0:3, :, :]
+        gt_image = view.original_image.cuda()
+        ssim_value = ssim(rendering, gt_image)
         torchvision.utils.save_image(
             rendering, os.path.join(render_path, "{0:05d}".format(idx) + ".png")
         )
         if name != "interp":
             torchvision.utils.save_image(   
-                gt, os.path.join(gts_path, "{0:05d}".format(idx) + ".png")
-            )
+                gt, os.path.join(gts_path, "{0:05d}".format(idx) + ".png"))
+            # Record SSIM by camera name
+        camname = getattr(view, "camname", f"cam_{idx}")
+        ssim_by_cam[camname] = float(ssim_value.detach().mean().item() if torch.is_tensor(ssim_value) else ssim_value)
+
+    # Write the JSON next to the renders
+    json_path = os.path.join(render_path, "ssim_by_cam.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(ssim_by_cam, f, indent=2, ensure_ascii=False)
 
 def render_set_optimize(model_path, name, iteration, views, gaussians, pipeline, background):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
@@ -218,7 +270,7 @@ def render_sets(
     else:
         start_time = time()
         if not skip_test:
-            render_set_optimize(
+            render_set(
                 dataset.model_path,
                 "test",
                 scene.loaded_iter,
@@ -231,7 +283,7 @@ def render_sets(
         save_time(dataset.model_path, '[4] render', end_time - start_time)
 
     if args.infer_video and not dataset.eval:
-        save_interpolate_pose(Path(args.model_path), iteration, args.n_views)
+        save_interpolate_pose(Path(args.model_path), iteration, args.n_views, len(scene.getTestCameras()))
         interp_pose = np.load(Path(args.model_path) / 'pose' / f'ours_{iteration}' / 'pose_interpolated.npy')
         viewpoint_stack = loadCameras(interp_pose, scene.getTrainCameras())
         render_set(

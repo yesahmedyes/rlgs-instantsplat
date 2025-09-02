@@ -337,10 +337,22 @@ def readColmapSceneInfo(path, images, eval, args, llffhold=8):
         train_poses = sorted_poses
         test_poses = sorted_poses
     else:
-        train_cam_infos = cam_infos
-        test_cam_infos = []
-        train_poses = sorted_poses
-        test_poses = []
+        ############### old one ##########
+        # train_cam_infos = cam_infos
+        # test_cam_infos = []
+        # train_poses = sorted_poses
+        # test_poses = []
+                
+                
+        # Alternative one
+        test_percentage = max(0, min(args.test_split, 100))
+        test_count = max(1, int(len(cam_infos) * test_percentage / 100.0))
+        #         # Alternate split: odd indices -> train, even indices -> test
+        train_cam_infos = cam_infos[::2]   # 0,2,4,...
+        test_cam_infos  = cam_infos[1::2]  # 1,3,5,...
+
+        train_poses = sorted_poses[::2]    # 0,2,4,...
+        test_poses  = sorted_poses[1::2]   # 1,3,5,...
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 

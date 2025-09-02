@@ -39,7 +39,7 @@ def add_rlgs_args(parser):
     """Add RLGS arguments to argument parser"""
     group = parser.add_argument_group("RLGS Parameters")
 
-    group.add_argument("--rlgs_enabled", action="store_true", default=False, help="Enable RLGS training")
+    group.add_argument("--rlgs_enabled", action="store_true", default=True, help="Enable RLGS training")
     group.add_argument("--rlgs_K", type=int, default=20, help="Steps per RLGS phase")
     group.add_argument("--rlgs_N_lr", type=int, default=3, help="Number of LR action trials per phase")
     group.add_argument("--rlgs_policy_lr", type=float, default=1e-4, help="Learning rate for RL policy")

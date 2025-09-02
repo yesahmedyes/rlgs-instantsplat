@@ -78,7 +78,7 @@ class PhaseRunner:
                 best_action = action.clone()
                 best_log_prob = log_prob.clone()
 
-        return best_action, best_log_prob, best_reward, new_hidden
+        return best_action, best_log_prob, best_reward, new_hidden.detach() if new_hidden is not None else None
 
     def _evaluate_action(
         self,

@@ -1,21 +1,31 @@
 #!/bin/bash
 
 # Change the absolute path first!
-DATA_ROOT_DIR="<Absolute_Path>/InstantSplat/assets"
+
 OUTPUT_DIR="output_infer"
-DATASETS=(
-    sora
+
+DATA_ROOT_DIR="/home/ubuntu/ahmed-etri"
+
+DATASETS=(tanks_templates)
+
+N_VIEWS=(
+    24
 )
 
 SCENES=(
-    Santorini
-    Art 
-)
-
-N_VIEWS=(
-    3
-)
-
+  # horse_360
+  # horrse_back
+#   horse_front
+horse
+  # horse_360
+  # ballroom
+  # barn
+  # church
+  # family
+  # francis
+  # ignatius
+  # museum
+  )
 gs_train_iter=1000
 
 # Function to get the id of an available GPU
@@ -46,7 +56,7 @@ run_on_gpu() {
     echo "======================================================="
 
     # (1) Co-visible Global Geometry Initialization
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Co-visible Global Geometry Initialization..."
+    # echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Co-visible Global Geometry Initialization..."
     CUDA_VISIBLE_DEVICES=${GPU_ID} python -W ignore ./init_geo.py \
     -s ${SOURCE_PATH} \
     -m ${MODEL_PATH} \
@@ -60,7 +70,7 @@ run_on_gpu() {
  
     # (2) Train: jointly optimize pose
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting training..."
-    CUDA_VISIBLE_DEVICES=${GPU_ID} python ./train.py \
+    CUDA_VISIBLE_DEVICES=${GPU_ID} python ./train_rlgs.py \
     -s ${SOURCE_PATH} \
     -m ${MODEL_PATH} \
     -r 1 \
@@ -72,7 +82,7 @@ run_on_gpu() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Training completed. Log saved in ${MODEL_PATH}/02_train.log"
 
     # (3) Render-Video
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting rendering training views..."
+    # echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting rendering training views..."
     CUDA_VISIBLE_DEVICES=${GPU_ID} python ./render.py \
     -s ${SOURCE_PATH} \
     -m ${MODEL_PATH} \

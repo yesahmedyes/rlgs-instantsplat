@@ -381,6 +381,8 @@ def training_with_rlgs(
 
             gaussians.update_learning_rate(iteration)
 
+            print({g.get("name", f"group_{i}"): g["lr"] for i, g in enumerate(gaussians.optimizer.param_groups)})
+
             if opt.optim_pose == False:
                 gaussians.P.requires_grad_(False)
 

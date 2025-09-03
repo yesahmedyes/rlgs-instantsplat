@@ -3,6 +3,15 @@ import copy
 from typing import Dict, List, Tuple, Optional, Callable
 from .utils import apply_lr_scaling, restore_optimizer_lrs
 
+from utils.loss_utils import l1_loss, ssim
+
+try:
+    from fused_ssim import fused_ssim
+
+    FUSED_SSIM_AVAILABLE = True
+except:
+    FUSED_SSIM_AVAILABLE = False
+
 
 class PhaseRunner:
     """
@@ -68,6 +77,10 @@ class PhaseRunner:
                 best_action = action.clone()
                 best_log_prob = log_prob.clone()
 
+        self._restore_model_state(gaussians, initial_state)
+
+        print("Best action:", best_action)
+
         return best_action, best_log_prob, best_reward, new_hidden.detach() if new_hidden is not None else None
 
     def _evaluate_baseline(
@@ -85,6 +98,7 @@ class PhaseRunner:
         # Keep original learning rates (no scaling applied)
 
         total_loss = 0.0
+
         for step in range(self.K):
             view_idx = step % len(reward_views)
             viewpoint_cam = reward_views[view_idx]
@@ -94,7 +108,15 @@ class PhaseRunner:
             image = render_pkg["render"]
             gt_image = viewpoint_cam.original_image.cuda()
 
-            loss = torch.mean(torch.abs(image - gt_image))
+            Ll1 = l1_loss(image, gt_image)
+
+            if FUSED_SSIM_AVAILABLE:
+                ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+            else:
+                ssim_value = ssim(image, gt_image)
+
+            loss = (1.0 - 0.2) * Ll1 + 0.2 * (1.0 - ssim_value)  # TODO: make it a parameter
+
             loss.backward()
 
             gaussians.optimizer.step()

@@ -78,6 +78,7 @@ run_on_gpu() {
     --iterations ${gs_train_iter} \
     --pp_optimizer \
     --optim_pose \
+    --rlgs_enabled \
     > ${MODEL_PATH}/02_train.log 2>&1
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Training completed. Log saved in ${MODEL_PATH}/02_train.log"
 

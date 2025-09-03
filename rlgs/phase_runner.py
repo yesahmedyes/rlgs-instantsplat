@@ -56,10 +56,14 @@ class PhaseRunner:
         # Save initial state
         initial_state = self._save_model_state(gaussians)
 
-        # 1. COMPUTE BASELINE ONCE: Evaluate with default parameters (h_orig)
-        baseline_loss = self._evaluate_baseline(gaussians, reward_views, render_func, render_args, initial_state)
+        action = torch.ones(len(original_lrs))
 
-        # 2. TRY MULTIPLE SAMPLED ACTIONS
+        baseline_loss = self._evaluate_action(
+            action, gaussians, reward_views, render_func, render_args, group_mapping, original_lrs, initial_state
+        )
+
+        print("\nBaseline loss:", baseline_loss)
+
         for _ in range(self.N_lr):
             # Sample action
             action, log_prob, new_hidden = policy.sample_action(state, hidden_state)
@@ -68,6 +72,8 @@ class PhaseRunner:
             sampled_loss = self._evaluate_action(
                 action, gaussians, reward_views, render_func, render_args, group_mapping, original_lrs, initial_state
             )
+
+            print("\nSampled loss:", sampled_loss)
 
             # Compute reward: R = M(h_orig) - M(h)
             reward = baseline_loss - sampled_loss
@@ -79,52 +85,9 @@ class PhaseRunner:
 
         self._restore_model_state(gaussians, initial_state)
 
-        print("Best action:", best_action)
+        print("\nBest action:", best_action)
 
         return best_action, best_log_prob, best_reward, new_hidden.detach() if new_hidden is not None else None
-
-    def _evaluate_baseline(
-        self,
-        gaussians,
-        reward_views: List,
-        render_func: Callable,
-        render_args: tuple,
-        initial_state: dict,
-    ) -> float:
-        """Evaluate baseline performance with default hyperparameters (no LR scaling)"""
-
-        # Restore initial state
-        self._restore_model_state(gaussians, initial_state)
-        # Keep original learning rates (no scaling applied)
-
-        total_loss = 0.0
-
-        for step in range(self.K):
-            view_idx = step % len(reward_views)
-            viewpoint_cam = reward_views[view_idx]
-            pose = gaussians.get_RT(viewpoint_cam.uid)
-
-            render_pkg = render_func(viewpoint_cam, gaussians, *render_args, camera_pose=pose)
-            image = render_pkg["render"]
-            gt_image = viewpoint_cam.original_image.cuda()
-
-            Ll1 = l1_loss(image, gt_image)
-
-            if FUSED_SSIM_AVAILABLE:
-                ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
-            else:
-                ssim_value = ssim(image, gt_image)
-
-            loss = (1.0 - 0.2) * Ll1 + 0.2 * (1.0 - ssim_value)  # TODO: make it a parameter
-
-            loss.backward()
-
-            gaussians.optimizer.step()
-            gaussians.optimizer.zero_grad(set_to_none=True)
-
-            total_loss += loss.item()
-
-        return total_loss / self.K
 
     def _evaluate_action(
         self,
@@ -156,7 +119,15 @@ class PhaseRunner:
             image = render_pkg["render"]
             gt_image = viewpoint_cam.original_image.cuda()
 
-            loss = torch.mean(torch.abs(image - gt_image))
+            Ll1 = l1_loss(image, gt_image)
+
+            if FUSED_SSIM_AVAILABLE:
+                ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+            else:
+                ssim_value = ssim(image, gt_image)
+
+            loss = (1.0 - 0.2) * Ll1 + 0.2 * (1.0 - ssim_value)
+
             loss.backward()
 
             gaussians.optimizer.step()
@@ -236,3 +207,7 @@ class PhaseRunner:
             "total_loss": total_loss.item(),
             "reward": reward,
         }
+
+
+
+

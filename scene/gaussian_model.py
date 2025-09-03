@@ -178,17 +178,60 @@ class GaussianModel:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
 
         l = [
-            {"params": [self._xyz], "lr": training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
-            {"params": [self._features_dc], "lr": training_args.feature_lr * 10, "name": "f_dc"},
-            {"params": [self._features_rest], "lr": training_args.feature_lr / 20.0 * 10, "name": "f_rest"},
-            {"params": [self._opacity], "lr": training_args.opacity_lr, "name": "opacity"},
-            {"params": [self._scaling], "lr": training_args.scaling_lr * 10, "name": "scaling"},
-            {"params": [self._rotation], "lr": training_args.rotation_lr * 10, "name": "rotation"},
+            {
+                "params": [self._xyz],
+                "lr": training_args.position_lr_init * self.spatial_lr_scale,
+                "base_lr": training_args.position_lr_init * self.spatial_lr_scale,
+                "rl_scale": 1.0,
+                "name": "xyz",
+            },
+            {
+                "params": [self._features_dc],
+                "lr": training_args.feature_lr * 10,
+                "base_lr": training_args.feature_lr * 10,
+                "rl_scale": 1.0,
+                "name": "f_dc",
+            },
+            {
+                "params": [self._features_rest],
+                "lr": training_args.feature_lr / 20.0 * 10,
+                "base_lr": training_args.feature_lr / 20.0 * 10,
+                "rl_scale": 1.0,
+                "name": "f_rest",
+            },
+            {
+                "params": [self._opacity],
+                "lr": training_args.opacity_lr,
+                "base_lr": training_args.opacity_lr,
+                "rl_scale": 1.0,
+                "name": "opacity",
+            },
+            {
+                "params": [self._scaling],
+                "lr": training_args.scaling_lr * 10,
+                "base_lr": training_args.scaling_lr * 10,
+                "rl_scale": 1.0,
+                "name": "scaling",
+            },
+            {
+                "params": [self._rotation],
+                "lr": training_args.rotation_lr * 10,
+                "base_lr": training_args.rotation_lr * 10,
+                "rl_scale": 1.0,
+                "name": "rotation",
+            },
         ]
 
         l_cam = [
-            {"params": [self.P], "lr": training_args.rotation_lr * 0.1, "name": "pose"},
+            {
+                "params": [self.P],
+                "lr": training_args.rotation_lr * 0.1,
+                "base_lr": training_args.rotation_lr * 0.1,
+                "rl_scale": 1.0,
+                "name": "pose",
+            }
         ]
+
         l += l_cam
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
@@ -248,16 +291,20 @@ class GaussianModel:
         )
 
     def update_learning_rate(self, iteration):
-        """Learning rate scheduling per step"""
         for param_group in self.optimizer.param_groups:
-            if param_group["name"] == "pose":
-                lr = self.cam_scheduler_args(iteration)
-                # print("pose learning rate", iteration, lr)
-                param_group["lr"] = lr
-            if param_group["name"] == "xyz":
-                lr = self.xyz_scheduler_args(iteration)
-                param_group["lr"] = lr
-        # return lr
+            name = param_group["name"]
+            if name == "pose":
+                base = self.cam_scheduler_args(iteration)
+                param_group["base_lr"] = base
+            elif name == "xyz":
+                base = self.xyz_scheduler_args(iteration)
+                param_group["base_lr"] = base
+            else:
+                base = param_group.get("base_lr", param_group["lr"])
+
+            rl_scale = param_group.get("rl_scale", 1.0)
+
+            param_group["lr"] = base * rl_scale
 
     def construct_list_of_attributes(self):
         l = ["x", "y", "z", "nx", "ny", "nz"]

@@ -29,35 +29,41 @@ def apply_lr_scaling(optimizer: torch.optim.Optimizer, action: torch.Tensor, gro
     """
     # Handle batch dimension if present
     if action.dim() > 1:
-        action = action.squeeze(0)  # Remove batch dimension
+        action = action.squeeze(0)
 
     for param_group in optimizer.param_groups:
         group_name = param_group.get("name", "")
 
         if group_name in group_mapping:
-            action_idx = group_mapping[group_name]
-            scale_factor = action[action_idx].item()
-            original_lr = original_lrs[group_name]
-            param_group["lr"] = original_lr * scale_factor
+            idx = group_mapping[group_name]
+            scale = action[idx].item()
+
+            if "rl_scale" in param_group or "base_lr" in param_group:
+                param_group["rl_scale"] = scale
+                base = param_group.get("base_lr", param_group["lr"])
+                param_group["lr"] = base * scale
+            else:
+                original_lr = original_lrs[group_name]
+                param_group["lr"] = original_lr * scale
 
 
-def save_optimizer_lrs(optimizer: torch.optim.Optimizer) -> dict:
-    """Save original learning rates from optimizer"""
-    original_lrs = {}
+def save_optimizer_lrs(optimizer):
+    original = {}
 
-    for param_group in optimizer.param_groups:
-        group_name = param_group.get("name", "")
+    for pg in optimizer.param_groups:
+        name = pg.get("name", "")
 
-        if group_name:
-            original_lrs[group_name] = param_group["lr"]
+        if name:
+            original[name] = pg.get("base_lr", pg["lr"])
 
-    return original_lrs
+    return original
 
 
-def restore_optimizer_lrs(optimizer: torch.optim.Optimizer, original_lrs: dict):
-    """Restore original learning rates to optimizer"""
-    for param_group in optimizer.param_groups:
-        group_name = param_group.get("name", "")
+def restore_optimizer_lrs(optimizer, original_lrs):
+    for pg in optimizer.param_groups:
+        name = pg.get("name", "")
 
-        if group_name in original_lrs:
-            param_group["lr"] = original_lrs[group_name]
+        if name in original_lrs:
+            pg["base_lr"] = original_lrs[name]
+            pg["rl_scale"] = 1.0
+            pg["lr"] = original_lrs[name]

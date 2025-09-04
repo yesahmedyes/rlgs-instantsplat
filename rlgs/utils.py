@@ -17,7 +17,7 @@ def compute_log_prob(action_dist, action: torch.Tensor) -> torch.Tensor:
     return action_dist.log_prob(action).sum(dim=-1)
 
 
-def apply_lr_scaling(optimizer: torch.optim.Optimizer, action: torch.Tensor, group_mapping: dict, original_lrs: dict):
+def apply_lr_scaling(optimizer: torch.optim.Optimizer, action: torch.Tensor, group_mapping: dict):
     """
     Apply learning rate scaling to optimizer parameter groups.
 
@@ -38,13 +38,9 @@ def apply_lr_scaling(optimizer: torch.optim.Optimizer, action: torch.Tensor, gro
             idx = group_mapping[group_name]
             scale = action[idx].item()
 
-            if "rl_scale" in param_group or "base_lr" in param_group:
-                param_group["rl_scale"] = scale
-                base = param_group.get("base_lr", param_group["lr"])
-                param_group["lr"] = base * scale
-            else:
-                original_lr = original_lrs[group_name]
-                param_group["lr"] = original_lr * scale
+            param_group["rl_scale"] = scale
+            base = param_group.get("base_lr", param_group["lr"])
+            param_group["lr"] = base * scale
 
 
 def save_optimizer_lrs(optimizer):
@@ -59,11 +55,12 @@ def save_optimizer_lrs(optimizer):
     return original
 
 
-def restore_optimizer_lrs(optimizer, original_lrs):
+def restore_optimizer_lrs(optimizer, group_mapping: dict):
     for pg in optimizer.param_groups:
-        name = pg.get("name", "")
+        group_name = pg.get("name", "")
 
-        if name in original_lrs:
-            pg["base_lr"] = original_lrs[name]
+        if group_name in group_mapping:
             pg["rl_scale"] = 1.0
-            pg["lr"] = original_lrs[name]
+
+            base = pg.get("base_lr", pg["lr"])
+            pg["lr"] = base

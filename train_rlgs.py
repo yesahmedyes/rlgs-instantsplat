@@ -231,7 +231,7 @@ def training_with_rlgs(
             )
 
             # Apply best action and run real phase
-            apply_lr_scaling(gaussians.optimizer, best_action, group_mapping, original_lrs)
+            apply_lr_scaling(gaussians.optimizer, best_action, group_mapping)
 
             phase_loss = 0.0
 

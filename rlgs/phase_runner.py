@@ -56,11 +56,9 @@ class PhaseRunner:
         # Save initial state
         initial_state = self._save_model_state(gaussians)
 
-        action = torch.ones(len(original_lrs))
+        action = torch.ones(len(group_mapping))
 
-        baseline_loss = self._evaluate_action(
-            action, gaussians, reward_views, render_func, render_args, group_mapping, original_lrs, initial_state
-        )
+        baseline_loss = self._evaluate_action(action, gaussians, reward_views, render_func, render_args, group_mapping, initial_state)
 
         print("\nBaseline loss:", baseline_loss)
 
@@ -69,9 +67,7 @@ class PhaseRunner:
             action, log_prob, new_hidden = policy.sample_action(state, hidden_state)
 
             # Evaluate sampled action
-            sampled_loss = self._evaluate_action(
-                action, gaussians, reward_views, render_func, render_args, group_mapping, original_lrs, initial_state
-            )
+            sampled_loss = self._evaluate_action(action, gaussians, reward_views, render_func, render_args, group_mapping, initial_state)
 
             print("\nSampled loss:", sampled_loss)
 
@@ -97,7 +93,6 @@ class PhaseRunner:
         render_func: Callable,
         render_args: tuple,
         group_mapping: Dict[str, int],
-        original_lrs: Dict[str, float],
         initial_state: dict,
     ) -> float:
         """Evaluate a sampled action and return average loss"""
@@ -106,7 +101,7 @@ class PhaseRunner:
         self._restore_model_state(gaussians, initial_state)
 
         # Apply learning rate scaling
-        apply_lr_scaling(gaussians.optimizer, action, group_mapping, original_lrs)
+        apply_lr_scaling(gaussians.optimizer, action, group_mapping)
 
         total_loss = 0.0
 
@@ -136,7 +131,7 @@ class PhaseRunner:
             total_loss += loss.item()
 
         # Restore original learning rates
-        restore_optimizer_lrs(gaussians.optimizer, original_lrs)
+        restore_optimizer_lrs(gaussians.optimizer, group_mapping)
 
         return total_loss / self.K
 
@@ -207,7 +202,3 @@ class PhaseRunner:
             "total_loss": total_loss.item(),
             "reward": reward,
         }
-
-
-
-

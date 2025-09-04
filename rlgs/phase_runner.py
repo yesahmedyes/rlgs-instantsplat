@@ -76,8 +76,8 @@ class PhaseRunner:
 
             if reward > best_reward:
                 best_reward = reward
-                best_action = action.clone()
-                best_log_prob = log_prob.clone()
+                best_action = action.detach().clone()
+                best_log_prob = log_prob.detach().clone()
 
         self._restore_model_state(gaussians, initial_state)
 
@@ -136,33 +136,45 @@ class PhaseRunner:
         return total_loss / self.K
 
     def _save_model_state(self, gaussians) -> dict:
-        return {
-            "model_state": {
-                "_xyz": gaussians._xyz.data.clone(),
-                "_features_dc": gaussians._features_dc.data.clone(),
-                "_features_rest": gaussians._features_rest.data.clone(),
-                "_scaling": gaussians._scaling.data.clone(),
-                "_rotation": gaussians._rotation.data.clone(),
-                "_opacity": gaussians._opacity.data.clone(),
-                "P": gaussians.P.data.clone() if hasattr(gaussians, "P") else None,
-            },
-            "optimizer_state": copy.deepcopy(gaussians.optimizer.state_dict()),
+        ms = {
+            "_xyz": gaussians._xyz.detach().cpu(),
+            "_features_dc": gaussians._features_dc.detach().cpu(),
+            "_features_rest": gaussians._features_rest.detach().cpu(),
+            "_scaling": gaussians._scaling.detach().cpu(),
+            "_rotation": gaussians._rotation.detach().cpu(),
+            "_opacity": gaussians._opacity.detach().cpu(),
+            "P": gaussians.P.detach().cpu() if hasattr(gaussians, "P") else None,
         }
 
+        opt_state = gaussians.optimizer.state_dict()
+
+        for st in opt_state["state"].values():
+            for k, v in list(st.items()):
+                if isinstance(v, torch.Tensor):
+                    st[k] = v.detach().cpu()
+
+        return {"model_state": ms, "optimizer_state": opt_state}
+
     def _restore_model_state(self, gaussians, saved_state: dict):
-        model_state = saved_state["model_state"]
+        ms = saved_state["model_state"]
+        gaussians._xyz.data.copy_(ms["_xyz"].to("cuda"))
+        gaussians._features_dc.data.copy_(ms["_features_dc"].to("cuda"))
+        gaussians._features_rest.data.copy_(ms["_features_rest"].to("cuda"))
+        gaussians._scaling.data.copy_(ms["_scaling"].to("cuda"))
+        gaussians._rotation.data.copy_(ms["_rotation"].to("cuda"))
+        gaussians._opacity.data.copy_(ms["_opacity"].to("cuda"))
 
-        gaussians._xyz.data.copy_(model_state["_xyz"])
-        gaussians._features_dc.data.copy_(model_state["_features_dc"])
-        gaussians._features_rest.data.copy_(model_state["_features_rest"])
-        gaussians._scaling.data.copy_(model_state["_scaling"])
-        gaussians._rotation.data.copy_(model_state["_rotation"])
-        gaussians._opacity.data.copy_(model_state["_opacity"])
+        if ms["P"] is not None:
+            gaussians.P.data.copy_(ms["P"].to("cuda"))
 
-        if model_state["P"] is not None:
-            gaussians.P.data.copy_(model_state["P"])
+        opt_state = saved_state["optimizer_state"]
 
-        gaussians.optimizer.load_state_dict(saved_state["optimizer_state"])
+        for st in opt_state["state"].values():
+            for k, v in list(st.items()):
+                if isinstance(v, torch.Tensor):
+                    st[k] = v.to("cuda")
+
+        gaussians.optimizer.load_state_dict(opt_state)
 
     def update_policy(
         self,

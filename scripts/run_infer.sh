@@ -13,19 +13,16 @@ N_VIEWS=(
 )
 
 SCENES=(
-  # horse_360
-  # horrse_back
-#   horse_front
 horse
-  # horse_360
-  # ballroom
-  # barn
-  # church
-  # family
-  # francis
-  # ignatius
-  # museum
-  )
+ballroom
+barn
+church
+family
+francis
+ignatius
+museum
+)
+
 gs_train_iter=1000
 
 # Function to get the id of an available GPU
@@ -78,7 +75,6 @@ run_on_gpu() {
     --iterations ${gs_train_iter} \
     --pp_optimizer \
     --optim_pose \
-    --rlgs_enabled \
     > ${MODEL_PATH}/02_train.log 2>&1
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Training completed. Log saved in ${MODEL_PATH}/02_train.log"
 

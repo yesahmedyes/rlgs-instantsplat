@@ -154,6 +154,18 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
             "lpips": float(lpips_value.detach().mean().item() if torch.is_tensor(lpips_value) else lpips_value),
         }
 
+    # Calculate averages
+    if metrics_by_cam:
+        avg_ssim = sum(metrics["ssim"] for metrics in metrics_by_cam.values()) / len(metrics_by_cam)
+        avg_psnr = sum(metrics["psnr"] for metrics in metrics_by_cam.values()) / len(metrics_by_cam)
+        avg_lpips = sum(metrics["lpips"] for metrics in metrics_by_cam.values()) / len(metrics_by_cam)
+
+        metrics_by_cam["averages"] = {
+            "ssim": float(avg_ssim),
+            "psnr": float(avg_psnr),
+            "lpips": float(avg_lpips),
+        }
+
     # Write the JSON next to the renders
     json_path = os.path.join(render_path, "metrics_by_cam.json")
     with open(json_path, "w", encoding="utf-8") as f:

@@ -20,7 +20,7 @@ class RLGSConfig:
 
     # Reward view parameters
     reward_set_len: int = 2
-    reshuffle_interval: int = 1000
+    reshuffle_interval: int = 100
 
     # Learning rate groups and bounds
     lr_groups: List[str] = None
@@ -46,7 +46,7 @@ def add_rlgs_args(parser):
     group.add_argument("--rlgs_grad_clip", type=float, default=2.4, help="Gradient clipping for policy")
     group.add_argument("--rlgs_entropy_coef", type=float, default=0.01, help="Entropy coefficient for policy")
     group.add_argument("--rlgs_reward_set_len", type=int, default=2, help="Number of reward views")
-    group.add_argument("--rlgs_reshuffle_interval", type=int, default=1000, help="Reward view reshuffle interval")
+    group.add_argument("--rlgs_reshuffle_interval", type=int, default=100, help="Reward view reshuffle interval")
 
     return group
 
@@ -61,5 +61,5 @@ def create_rlgs_config_from_args(args) -> RLGSConfig:
         grad_clip=getattr(args, "rlgs_grad_clip", 2.4),
         entropy_coef=getattr(args, "rlgs_entropy_coef", 0.01),
         reward_set_len=getattr(args, "rlgs_reward_set_len", 2),
-        reshuffle_interval=getattr(args, "rlgs_reshuffle_interval", 1000),
+        reshuffle_interval=getattr(args, "rlgs_reshuffle_interval", 100),
     )

@@ -47,6 +47,10 @@ class RLLRPolicy(nn.Module):
 
         nn.init.constant_(self.mean_head.bias, 0.0)
 
+        init_weights_path = "gpu_init.pth"
+
+        self.save_weights(init_weights_path)
+
     def save_weights(self, filepath: str) -> bool:
         try:
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -56,6 +60,7 @@ class RLLRPolicy(nn.Module):
             return True
         except Exception as e:
             print(f"❌ Failed to save GRU weights to {filepath}: {e}")
+
             return False
 
     def load_weights(self, filepath: str) -> bool:
@@ -64,11 +69,14 @@ class RLLRPolicy(nn.Module):
                 return False
 
             state_dict = torch.load(filepath, map_location="cpu")
+
             self.load_state_dict(state_dict)
 
             return True
+
         except Exception as e:
             print(f"❌ Failed to load GRU weights from {filepath}: {e}")
+
             return False
 
     def forward(self, state: torch.Tensor, hidden: Optional[torch.Tensor] = None) -> Tuple[torch.distributions.Normal, torch.Tensor]:

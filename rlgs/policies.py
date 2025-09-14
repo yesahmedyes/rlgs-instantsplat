@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import os
 from typing import Tuple, Optional
 
 
@@ -15,6 +16,7 @@ class RLLRPolicy(nn.Module):
         hidden_dim: int = 64,
         num_groups: int = 5,
         action_bounds: Tuple[float, float] = (0.5, 2.0),
+        weights_path: Optional[str] = None,
     ):
         super().__init__()
 
@@ -22,6 +24,7 @@ class RLLRPolicy(nn.Module):
         self.hidden_dim = hidden_dim
         self.num_groups = num_groups  # pos, scale, rot, opacity, sh_base
         self.action_bounds = action_bounds
+        self.weights_path = weights_path
 
         # GRU for sequential state processing
         self.gru = nn.GRU(input_size=state_dim, hidden_size=hidden_dim, batch_first=True)
@@ -30,19 +33,43 @@ class RLLRPolicy(nn.Module):
         self.mean_head = nn.Linear(hidden_dim, num_groups)
         self.log_std_head = nn.Linear(hidden_dim, num_groups)
 
-        # Initialize with small weights
         self._init_weights()
 
     def _init_weights(self):
-        """Initialize weights for stable early training"""
+        if self.weights_path and self.load_weights(self.weights_path):
+            return
+
         for name, param in self.named_parameters():
             if "weight" in name:
                 nn.init.xavier_uniform_(param, gain=0.1)
             elif "bias" in name:
                 nn.init.constant_(param, 0.0)
 
-        # Initialize mean head to output 1.0 (no scaling initially)
         nn.init.constant_(self.mean_head.bias, 0.0)
+
+    def save_weights(self, filepath: str) -> bool:
+        try:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+            torch.save(self.state_dict(), filepath)
+
+            return True
+        except Exception as e:
+            print(f"❌ Failed to save GRU weights to {filepath}: {e}")
+            return False
+
+    def load_weights(self, filepath: str) -> bool:
+        try:
+            if not os.path.exists(filepath):
+                return False
+
+            state_dict = torch.load(filepath, map_location="cpu")
+            self.load_state_dict(state_dict)
+
+            return True
+        except Exception as e:
+            print(f"❌ Failed to load GRU weights from {filepath}: {e}")
+            return False
 
     def forward(self, state: torch.Tensor, hidden: Optional[torch.Tensor] = None) -> Tuple[torch.distributions.Normal, torch.Tensor]:
         """

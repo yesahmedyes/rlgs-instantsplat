@@ -30,6 +30,9 @@ class RLGSConfig:
     hidden_dim: int = 64
     state_dim: int = 2
 
+    # Weight saving
+    save_weights: bool = False
+
     def __post_init__(self):
         if self.lr_groups is None:
             self.lr_groups = ["xyz", "f_dc", "f_rest", "opacity", "scaling", "rotation"]
@@ -47,6 +50,7 @@ def add_rlgs_args(parser):
     group.add_argument("--rlgs_entropy_coef", type=float, default=0.01, help="Entropy coefficient for policy")
     group.add_argument("--rlgs_reward_set_len", type=int, default=2, help="Number of reward views")
     group.add_argument("--rlgs_reshuffle_interval", type=int, default=100, help="Reward view reshuffle interval")
+    group.add_argument("--save-weights", action="store_true", default=False, help="Save GRU weights at end of training")
 
     return group
 
@@ -62,4 +66,5 @@ def create_rlgs_config_from_args(args) -> RLGSConfig:
         entropy_coef=getattr(args, "rlgs_entropy_coef", 0.01),
         reward_set_len=getattr(args, "rlgs_reward_set_len", 2),
         reshuffle_interval=getattr(args, "rlgs_reshuffle_interval", 100),
+        save_weights=getattr(args, "save_weights", False),
     )

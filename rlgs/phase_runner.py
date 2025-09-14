@@ -105,7 +105,7 @@ class PhaseRunner:
 
         total_loss = 0.0
 
-        for step in range(self.K):
+        for step in range(self.K * 3):
             view_idx = step % len(reward_views)
             viewpoint_cam = reward_views[view_idx]
             pose = gaussians.get_RT(viewpoint_cam.uid)

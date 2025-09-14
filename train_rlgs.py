@@ -167,12 +167,16 @@ def training_with_rlgs(
         action_spaces = ActionSpaces(rlgs_config.lr_groups, rlgs_config.lr_action_bounds)
         state_encoder = StateEncoder(opt.iterations)
 
-        # Initialize RL policy
+        # Set up weights path for GRU priors
+        weights_path = os.path.join("rlgs", "gru_priors.pth")
+
+        # Initialize RL policy with weights path
         policy = RLLRPolicy(
             state_dim=rlgs_config.state_dim,
             hidden_dim=rlgs_config.hidden_dim,
             num_groups=len(rlgs_config.lr_groups),
             action_bounds=rlgs_config.lr_action_bounds,
+            weights_path=weights_path,
         ).cuda()
 
         policy_optimizer = torch.optim.Adam(policy.parameters(), lr=rlgs_config.policy_lr)
@@ -194,8 +198,13 @@ def training_with_rlgs(
         prev_loss = None
 
         print(f"✅ RLGS initialized with {len(rlgs_config.lr_groups)} LR groups")
+        if rlgs_config.save_weights:
+            print("💾 Weight saving enabled - will update priors at end of training")
+        else:
+            print("📖 Weight saving disabled - priors will not be updated")
     else:
         reward_sampler = None
+        policy = None
 
     iter_start = torch.cuda.Event(enable_timing=True)
     iter_end = torch.cuda.Event(enable_timing=True)
@@ -472,6 +481,14 @@ def training_with_rlgs(
     end = time()
     train_time = end - start
     save_time(scene.model_path, "[2] train_joint", train_time)
+
+    # Save GRU weights if enabled
+    if rlgs_config.enabled and rlgs_config.save_weights and policy is not None:
+        weights_path = os.path.join("rlgs", "gru_priors.pth")
+
+        policy.save_weights(weights_path)
+
+        print("✅ GRU priors saved successfully")
 
 
 def prepare_output_and_logger(args):

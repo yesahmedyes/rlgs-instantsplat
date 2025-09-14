@@ -38,6 +38,7 @@ class PhaseRunner:
         policy,
         state: torch.Tensor,
         gaussians,
+        training_views: List,
         reward_views: List,
         render_func: Callable,
         render_args: tuple,
@@ -58,7 +59,9 @@ class PhaseRunner:
 
         action = torch.ones(len(group_mapping))
 
-        baseline_loss = self._evaluate_action(action, gaussians, reward_views, render_func, render_args, group_mapping, initial_state)
+        baseline_loss = self._evaluate_action(
+            action, gaussians, training_views, reward_views, render_func, render_args, group_mapping, initial_state
+        )
 
         print("\nBaseline loss:", baseline_loss)
 
@@ -67,7 +70,9 @@ class PhaseRunner:
             action, log_prob, new_hidden = policy.sample_action(state, hidden_state)
 
             # Evaluate sampled action
-            sampled_loss = self._evaluate_action(action, gaussians, reward_views, render_func, render_args, group_mapping, initial_state)
+            sampled_loss = self._evaluate_action(
+                action, gaussians, training_views, reward_views, render_func, render_args, group_mapping, initial_state
+            )
 
             print("\nSampled loss:", sampled_loss)
 
@@ -89,6 +94,7 @@ class PhaseRunner:
         self,
         action: torch.Tensor,
         gaussians,
+        training_views: List,
         reward_views: List,
         render_func: Callable,
         render_args: tuple,
@@ -103,11 +109,10 @@ class PhaseRunner:
         # Apply learning rate scaling
         apply_lr_scaling(gaussians.optimizer, action, group_mapping)
 
-        total_loss = 0.0
-
+        # Phase 1: Run K steps on training views (with gradient updates)
         for step in range(self.K):
-            view_idx = step % len(reward_views)
-            viewpoint_cam = reward_views[view_idx]
+            view_idx = step % len(training_views)
+            viewpoint_cam = training_views[view_idx]
             pose = gaussians.get_RT(viewpoint_cam.uid)
 
             render_pkg = render_func(viewpoint_cam, gaussians, *render_args, camera_pose=pose)
@@ -128,12 +133,31 @@ class PhaseRunner:
             gaussians.optimizer.step()
             gaussians.optimizer.zero_grad(set_to_none=True)
 
-            total_loss += loss.item()
+        # Phase 2: Evaluate on reward views (no gradient updates)
+        total_eval_loss = 0.0
+
+        with torch.no_grad():
+            for viewpoint_cam in reward_views:
+                pose = gaussians.get_RT(viewpoint_cam.uid)
+
+                render_pkg = render_func(viewpoint_cam, gaussians, *render_args, camera_pose=pose)
+                image = render_pkg["render"]
+                gt_image = viewpoint_cam.original_image.cuda()
+
+                Ll1 = l1_loss(image, gt_image)
+
+                if FUSED_SSIM_AVAILABLE:
+                    ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+                else:
+                    ssim_value = ssim(image, gt_image)
+
+                loss = (1.0 - 0.2) * Ll1 + 0.2 * (1.0 - ssim_value)
+                total_eval_loss += loss.item()
 
         # Restore original learning rates
         restore_optimizer_lrs(gaussians.optimizer, group_mapping)
 
-        return total_loss / self.K
+        return total_eval_loss / len(reward_views)
 
     def _save_model_state(self, gaussians) -> dict:
         ms = {

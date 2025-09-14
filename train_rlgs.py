@@ -222,6 +222,7 @@ def training_with_rlgs(
                 policy=policy,
                 state=state,
                 gaussians=gaussians,
+                training_views=reward_sampler.get_train_views(),
                 reward_views=reward_sampler.get_reward_views(),
                 render_func=render,
                 render_args=(pipe, background),

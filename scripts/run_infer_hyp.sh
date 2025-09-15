@@ -188,7 +188,7 @@ for gpu in $all_gpus; do
 done
 
 # After gs_train_iter=1000
-GPU_LOCK_DIR="/tmp/rlgs_gpu_locks"
+GPU_LOCK_DIR="./tmp/rlgs_gpu_locks"
 mkdir -p "$GPU_LOCK_DIR"
 
 # Main loop - now includes hyperparameter configurations

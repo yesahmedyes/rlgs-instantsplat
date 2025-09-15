@@ -4,6 +4,8 @@ from typing import Dict, List, Tuple, Optional, Callable
 from .utils import apply_lr_scaling, restore_optimizer_lrs
 
 from utils.loss_utils import l1_loss, ssim
+from lpipsPyTorch.modules.lpips import LPIPS
+from utils.image_utils import psnr
 
 try:
     from fused_ssim import fused_ssim
@@ -32,6 +34,9 @@ class PhaseRunner:
         self.policy_lr = policy_lr
         self.grad_clip = grad_clip
         self.entropy_coef = entropy_coef
+
+        # Initialize LPIPS loss
+        self.lpips_loss = LPIPS(net="vgg").cuda()
 
     def try_actions(
         self,
@@ -114,14 +119,24 @@ class PhaseRunner:
             image = render_pkg["render"]
             gt_image = viewpoint_cam.original_image.cuda()
 
+            # L1 loss
             Ll1 = l1_loss(image, gt_image)
 
+            # SSIM loss
             if FUSED_SSIM_AVAILABLE:
                 ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
             else:
                 ssim_value = ssim(image, gt_image)
 
-            loss = (1.0 - 0.2) * Ll1 + 0.2 * (1.0 - ssim_value)
+            # PSNR loss (convert to loss by negating)
+            psnr_value = psnr(image.unsqueeze(0), gt_image.unsqueeze(0))
+            psnr_loss = -psnr_value.mean()  # Negate because higher PSNR is better
+
+            # LPIPS loss
+            lpips_value = self.lpips_loss(image.unsqueeze(0), gt_image.unsqueeze(0))
+
+            # Combined loss: 0.4 * l1 + 0.2 * ssim + 0.2 * psnr + 0.2 * lpips
+            loss = 0.4 * Ll1 + 0.2 * (1.0 - ssim_value) + 0.2 * psnr_loss + 0.2 * lpips_value.mean()
 
             loss.backward()
 

@@ -4,6 +4,8 @@ from typing import Dict, List, Tuple, Optional, Callable
 from .utils import apply_lr_scaling, restore_optimizer_lrs
 
 from utils.loss_utils import l1_loss, ssim
+from utils.image_utils import psnr
+from lpipsPyTorch import lpips
 
 try:
     from fused_ssim import fused_ssim
@@ -119,6 +121,7 @@ class PhaseRunner:
             image = render_pkg["render"]
             gt_image = viewpoint_cam.original_image.cuda()
 
+            # Calculate all metrics
             Ll1 = l1_loss(image, gt_image)
 
             if FUSED_SSIM_AVAILABLE:
@@ -126,7 +129,10 @@ class PhaseRunner:
             else:
                 ssim_value = ssim(image, gt_image)
 
-            loss = (1.0 - 0.2) * Ll1 + 0.2 * (1.0 - ssim_value)
+            psnr_value = psnr(image, gt_image).mean()
+            lpips_value = lpips(image, gt_image, net_type="alex").mean()
+
+            loss = 0.4 * Ll1 + 0.2 * (1.0 - ssim_value) + 0.2 * (-psnr_value / 100.0) + 0.2 * lpips_value
 
             loss.backward()
 
@@ -144,6 +150,7 @@ class PhaseRunner:
                 image = render_pkg["render"]
                 gt_image = viewpoint_cam.original_image.cuda()
 
+                # Calculate all metrics
                 Ll1 = l1_loss(image, gt_image)
 
                 if FUSED_SSIM_AVAILABLE:
@@ -151,7 +158,11 @@ class PhaseRunner:
                 else:
                     ssim_value = ssim(image, gt_image)
 
-                loss = (1.0 - 0.2) * Ll1 + 0.2 * (1.0 - ssim_value)
+                psnr_value = psnr(image, gt_image).mean()
+                lpips_value = lpips(image, gt_image, net_type="alex").mean()
+
+                loss = 0.4 * Ll1 + 0.2 * (1.0 - ssim_value) + 0.2 * (-psnr_value / 100.0) + 0.2 * lpips_value
+
                 total_eval_loss += loss.item()
 
         # Restore original learning rates

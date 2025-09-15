@@ -36,7 +36,7 @@ class PhaseRunner:
         self.entropy_coef = entropy_coef
 
         # Initialize LPIPS loss
-        self.lpips_loss = LPIPS(net="vgg").cuda()
+        self.lpips_loss = LPIPS(net_type="vgg").cuda()
 
     def try_actions(
         self,

@@ -11,16 +11,16 @@ class RLLRPolicy(nn.Module):
 
     def __init__(
         self,
-        state_dim: int = 2,
+        state_dim: int = 9,  # [iteration, prev_ssim_loss, prev_l1_loss] + rl_scale per group
         hidden_dim: int = 64,
-        num_groups: int = 5,
+        num_groups: int = 6,  # xyz, f_dc, f_rest, opacity, scaling, rotation
         action_bounds: Tuple[float, float] = (0.5, 2.0),
     ):
         super().__init__()
 
-        self.state_dim = state_dim  # [prev_loss, iteration]
+        self.state_dim = state_dim  # [iteration, prev_ssim_loss, prev_l1_loss] + rl_scale per group
         self.hidden_dim = hidden_dim
-        self.num_groups = num_groups  # pos, scale, rot, opacity, sh_base
+        self.num_groups = num_groups
         self.action_bounds = action_bounds
 
         # GRU for sequential state processing

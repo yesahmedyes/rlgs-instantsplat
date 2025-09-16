@@ -191,7 +191,8 @@ def training_with_rlgs(
 
         # Policy state
         hidden_state = None
-        prev_loss = None
+        prev_ssim_loss = None
+        prev_l1_loss = None
 
         print(f"✅ RLGS initialized with {len(rlgs_config.lr_groups)} LR groups")
     else:
@@ -215,7 +216,12 @@ def training_with_rlgs(
 
         while global_step <= opt.iterations:
             # Encode current state
-            state = state_encoder.encode_state(prev_loss, global_step)
+            state = state_encoder.encode_state(
+                iteration=global_step,
+                prev_ssim_loss=prev_ssim_loss if prev_ssim_loss is not None else 1.0,
+                prev_l1_loss=prev_l1_loss if prev_l1_loss is not None else 1.0,
+                optimizer=gaussians.optimizer,
+            )
 
             # Try actions and get best one
             best_action, best_log_prob, best_reward, hidden_state = phase_runner.try_actions(
@@ -233,7 +239,8 @@ def training_with_rlgs(
             # Apply best action and run real phase
             apply_lr_scaling(gaussians.optimizer, best_action, group_mapping)
 
-            phase_loss = 0.0
+            phase_ssim_loss = 0.0
+            phase_l1_loss = 0.0
 
             for step in range(rlgs_config.K):
                 if global_step > opt.iterations:
@@ -292,7 +299,8 @@ def training_with_rlgs(
 
                 iter_end.record()
 
-                phase_loss += loss.item()
+                phase_ssim_loss += 1.0 - ssim_value.item()
+                phase_l1_loss += Ll1.item()
 
                 with torch.no_grad():
                     # Progress bar
@@ -349,8 +357,8 @@ def training_with_rlgs(
                 global_step += 1
 
             # Update policy after phase
-            phase_loss_avg = phase_loss / rlgs_config.K
-            prev_loss = phase_loss_avg
+            prev_ssim_loss = phase_ssim_loss / rlgs_config.K
+            prev_l1_loss = phase_l1_loss / rlgs_config.K
 
             # Update policy
             policy_info = phase_runner.update_policy(

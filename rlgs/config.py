@@ -28,11 +28,14 @@ class RLGSConfig:
 
     # Policy architecture
     hidden_dim: int = 64
-    state_dim: int = 2
+    state_dim: int = 9  # 3 base + 6 lr_groups (iteration, prev_ssim_loss, prev_l1_loss + rl_scale per group)
 
     def __post_init__(self):
         if self.lr_groups is None:
             self.lr_groups = ["xyz", "f_dc", "f_rest", "opacity", "scaling", "rotation"]
+
+        # Update state_dim to account for base state + rl_scale per group
+        self.state_dim = 3 + len(self.lr_groups)
 
 
 def add_rlgs_args(parser):

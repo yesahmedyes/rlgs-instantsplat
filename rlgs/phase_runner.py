@@ -129,10 +129,7 @@ class PhaseRunner:
             else:
                 ssim_value = ssim(image, gt_image)
 
-            psnr_value = psnr(image, gt_image).mean()
-            lpips_value = lpips(image, gt_image, net_type="alex").mean()
-
-            loss = 0.4 * Ll1 + 0.2 * (1.0 - ssim_value) + 0.2 * (-psnr_value / 100.0) + 0.2 * lpips_value
+            loss = 0.8 * Ll1 + 0.2 * (1.0 - ssim_value)
 
             loss.backward()
 
@@ -158,10 +155,10 @@ class PhaseRunner:
                 else:
                     ssim_value = ssim(image, gt_image)
 
-                psnr_value = psnr(image, gt_image).mean()
-                lpips_value = lpips(image, gt_image, net_type="alex").mean()
+                # psnr_value = psnr(image, gt_image).mean()
+                # lpips_value = lpips(image, gt_image, net_type="vgg").mean()
 
-                loss = 0.4 * Ll1 + 0.2 * (1.0 - ssim_value) + 0.2 * (-psnr_value / 100.0) + 0.2 * lpips_value
+                loss = 0.8 * Ll1 + 0.2 * (1.0 - ssim_value)
 
                 total_eval_loss += loss.item()
 

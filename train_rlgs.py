@@ -33,6 +33,9 @@ from rlgs import RLLRPolicy, PhaseRunner, RewardViewSampler, ActionSpaces, State
 from rlgs.config import RLGSConfig, add_rlgs_args, create_rlgs_config_from_args
 from rlgs.utils import save_optimizer_lrs, apply_lr_scaling
 
+# Add LR recorder import
+from utils.lr_recorder import LRRecorder
+
 try:
     from torch.utils.tensorboard import SummaryWriter
 
@@ -189,6 +192,9 @@ def training_with_rlgs(
         original_lrs = save_optimizer_lrs(gaussians.optimizer)
         group_mapping = action_spaces.get_lr_group_mapping()
 
+        # Initialize LR recorder
+        lr_recorder = LRRecorder(lr_groups=rlgs_config.lr_groups, output_dir=os.path.join(scene.model_path, "lr_plots"))
+
         # Policy state
         hidden_state = None
         prev_ssim_loss = None
@@ -197,6 +203,7 @@ def training_with_rlgs(
         print(f"✅ RLGS initialized with {len(rlgs_config.lr_groups)} LR groups")
     else:
         reward_sampler = None
+        lr_recorder = None
 
     iter_start = torch.cuda.Event(enable_timing=True)
     iter_end = torch.cuda.Event(enable_timing=True)
@@ -238,6 +245,12 @@ def training_with_rlgs(
 
             # Apply best action and run real phase
             apply_lr_scaling(gaussians.optimizer, best_action, group_mapping)
+
+            # Record learning rates after applying scaling
+            lr_recorder.record_lrs(iteration=global_step, optimizer=gaussians.optimizer, group_mapping=group_mapping)
+
+            # Record learning rates after applying scaling
+            lr_recorder.record_lrs(iteration=global_step, optimizer=gaussians.optimizer, group_mapping=group_mapping)
 
             phase_ssim_loss = 0.0
             phase_l1_loss = 0.0
@@ -382,6 +395,10 @@ def training_with_rlgs(
 
             # Maybe reshuffle reward views
             reward_sampler.maybe_reshuffle(global_step)
+
+        if lr_recorder:
+            lr_recorder.plot_lrs()
+
     else:
         # Original training loop (without RLGS)
         for iteration in range(first_iter, opt.iterations + 1):

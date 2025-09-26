@@ -249,9 +249,6 @@ def training_with_rlgs(
             # Record learning rates after applying scaling
             lr_recorder.record_lrs(iteration=global_step, optimizer=gaussians.optimizer, group_mapping=group_mapping)
 
-            # Record learning rates after applying scaling
-            lr_recorder.record_lrs(iteration=global_step, optimizer=gaussians.optimizer, group_mapping=group_mapping)
-
             phase_ssim_loss = 0.0
             phase_l1_loss = 0.0
 

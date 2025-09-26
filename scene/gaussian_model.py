@@ -177,6 +177,9 @@ class GaussianModel:
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
 
+        # base_lr = the original learning rates
+        # lr = base_lr * rl_scale
+
         l = [
             {
                 "params": [self._xyz],
@@ -235,12 +238,14 @@ class GaussianModel:
         l += l_cam
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        self.xyz_scheduler_args = get_expon_lr_func(
-            lr_init=training_args.position_lr_init * self.spatial_lr_scale,
-            lr_final=training_args.position_lr_final * self.spatial_lr_scale,
-            lr_delay_mult=training_args.position_lr_delay_mult,
-            max_steps=training_args.position_lr_max_steps,
-        )
+
+        # self.xyz_scheduler_args = get_expon_lr_func(
+        #     lr_init=training_args.position_lr_init * self.spatial_lr_scale,
+        #     lr_final=training_args.position_lr_final * self.spatial_lr_scale,
+        #     lr_delay_mult=training_args.position_lr_delay_mult,
+        #     max_steps=training_args.position_lr_max_steps,
+        # )
+
         self.cam_scheduler_args = get_expon_lr_func(
             lr_init=training_args.rotation_lr * 0.1,
             lr_final=training_args.rotation_lr * 0.001,
@@ -314,12 +319,12 @@ class GaussianModel:
 
         self.optimizer = PerPointAdam(l, lr=0, betas=(0.9, 0.999), eps=1e-15, weight_decay=0.0)
 
-        self.xyz_scheduler_args = get_expon_lr_func(
-            lr_init=training_args.position_lr_init * self.spatial_lr_scale,
-            lr_final=training_args.position_lr_final * self.spatial_lr_scale,
-            lr_delay_mult=training_args.position_lr_delay_mult,
-            max_steps=training_args.position_lr_max_steps,
-        )
+        # self.xyz_scheduler_args = get_expon_lr_func(
+        #     lr_init=training_args.position_lr_init * self.spatial_lr_scale,
+        #     lr_final=training_args.position_lr_final * self.spatial_lr_scale,
+        #     lr_delay_mult=training_args.position_lr_delay_mult,
+        #     max_steps=training_args.position_lr_max_steps,
+        # )
 
         self.cam_scheduler_args = get_expon_lr_func(
             lr_init=training_args.rotation_lr * 0.1,
@@ -334,9 +339,9 @@ class GaussianModel:
             if name == "pose":
                 base = self.cam_scheduler_args(iteration)
                 param_group["base_lr"] = base
-            elif name == "xyz":
-                base = self.xyz_scheduler_args(iteration)
-                param_group["base_lr"] = base
+            # elif name == "xyz":
+            #     base = self.xyz_scheduler_args(iteration)
+            #     param_group["base_lr"] = base
             else:
                 base = param_group.get("base_lr", param_group["lr"])
 

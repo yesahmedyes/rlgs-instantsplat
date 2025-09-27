@@ -68,8 +68,6 @@ class PhaseRunner:
             action, gaussians, reshuffled_training_views, render_func, render_args, group_mapping, initial_state
         )
 
-        print("\nBaseline loss:", baseline_loss)
-
         for _ in range(self.N_lr):
             # Sample action
             action, log_prob, new_hidden = policy.sample_action(state, hidden_state)
@@ -78,8 +76,6 @@ class PhaseRunner:
             sampled_loss = self._evaluate_action(
                 action, gaussians, reshuffled_training_views, render_func, render_args, group_mapping, initial_state
             )
-
-            print("\nSampled loss:", sampled_loss)
 
             # Compute reward: R = M(h_orig) - M(h)
             reward = baseline_loss - sampled_loss
@@ -90,8 +86,6 @@ class PhaseRunner:
                 best_log_prob = log_prob.detach().clone()
 
         self._restore_model_state(gaussians, initial_state)
-
-        print("\nBest action:", best_action)
 
         return best_action, best_log_prob, best_reward, new_hidden.detach() if new_hidden is not None else None
 

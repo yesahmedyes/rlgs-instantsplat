@@ -1,5 +1,6 @@
 import torch
 import copy
+import random
 from typing import Dict, List, Tuple, Optional, Callable
 from .utils import apply_lr_scaling, restore_optimizer_lrs
 
@@ -55,12 +56,17 @@ class PhaseRunner:
         best_reward = float("-inf")
         new_hidden = hidden_state
 
+        reshuffled_training_views = training_views.copy()
+        random.shuffle(reshuffled_training_views)
+
         # Save initial state
         initial_state = self._save_model_state(gaussians)
 
         action = torch.ones(len(group_mapping))
 
-        baseline_loss = self._evaluate_action(action, gaussians, training_views, render_func, render_args, group_mapping, initial_state)
+        baseline_loss = self._evaluate_action(
+            action, gaussians, reshuffled_training_views, render_func, render_args, group_mapping, initial_state
+        )
 
         print("\nBaseline loss:", baseline_loss)
 
@@ -69,7 +75,9 @@ class PhaseRunner:
             action, log_prob, new_hidden = policy.sample_action(state, hidden_state)
 
             # Evaluate sampled action
-            sampled_loss = self._evaluate_action(action, gaussians, training_views, render_func, render_args, group_mapping, initial_state)
+            sampled_loss = self._evaluate_action(
+                action, gaussians, reshuffled_training_views, render_func, render_args, group_mapping, initial_state
+            )
 
             print("\nSampled loss:", sampled_loss)
 
@@ -106,7 +114,8 @@ class PhaseRunner:
         apply_lr_scaling(gaussians.optimizer, action, group_mapping)
 
         # Run for number of training views on training views (with gradient updates)
-        total_loss_during_training = 0.0
+        total_loss = 0.0
+        alpha = 0.1  # EMA smoothing factor
 
         for step in range(len(training_views)):
             viewpoint_cam = training_views[step]
@@ -125,40 +134,19 @@ class PhaseRunner:
                 ssim_value = ssim(image, gt_image)
 
             loss = 0.8 * Ll1 + 0.2 * (1.0 - ssim_value)
-            total_loss_during_training += loss.item()
+
+            # Update total_loss using exponential moving average
+            if step == 0:
+                total_loss = loss.item()
+            else:
+                total_loss = alpha * loss.item() + (1 - alpha) * total_loss
 
             loss.backward()
 
             gaussians.optimizer.step()
             gaussians.optimizer.zero_grad(set_to_none=True)
 
-        # # Evaluate on all training views (no gradient updates)
-        # total_eval_loss = 0.0
-
-        # with torch.no_grad():
-        #     for viewpoint_cam in training_views:
-        #         pose = gaussians.get_RT(viewpoint_cam.uid)
-
-        #         render_pkg = render_func(viewpoint_cam, gaussians, *render_args, camera_pose=pose)
-        #         image = render_pkg["render"]
-        #         gt_image = viewpoint_cam.original_image.cuda()
-
-        #         # Calculate all metrics
-        #         Ll1 = l1_loss(image, gt_image)
-
-        #         if FUSED_SSIM_AVAILABLE:
-        #             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
-        #         else:
-        #             ssim_value = ssim(image, gt_image)
-
-        #         loss = 0.8 * Ll1 + 0.2 * (1.0 - ssim_value)
-
-        #         total_eval_loss += loss.item()
-
-        # # Restore original learning rates
-        # restore_optimizer_lrs(gaussians.optimizer, group_mapping)
-
-        return total_loss_during_training / len(training_views)
+        return total_loss
 
     def _save_model_state(self, gaussians) -> dict:
         ms = {

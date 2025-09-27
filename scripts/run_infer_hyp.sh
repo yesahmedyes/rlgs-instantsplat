@@ -2,19 +2,14 @@
 
 # Change the absolute path first!
 
-# K, N_lr, reshuffle_interval, reward_set_len, entropy_coef
+# K, N_lr, entropy_coef
 # Define hyperparameter configurations as a bash array
 declare -a EXP_CONFIGS=(
     # Add baseline without RLGS
-    "0,0,0,0,0"
-    "20,3,100,2,0.01"
-    "20,3,50,2,0.01"
-    # "16,3,100,4,0.01"
-    # "16,3,50,4,0.01"
-    # "10,3,100,2,0.01"
-    # "10,3,50,2,0.01"
-    # "8,3,100,4,0.01"
-    # "8,3,50,4,0.01"
+    "0,0,0"
+    "5,3,0.01"
+    "10,3,0.01"
+    "20,3,0.01"
 )
 
 OUTPUT_DIR="output_infer_hyp"
@@ -78,11 +73,9 @@ run_on_gpu() {
     local gs_train_iter=$5
     local K=$6
     local N_lr=$7
-    local reshuffle_interval=$8
-    local reward_set_len=$9
-    local entropy_coef=${10}
+    local entropy_coef=$8
 
-    local hyp_id="K${K}_Nlr${N_lr}_ri${reshuffle_interval}_rsl${reward_set_len}_ec${entropy_coef}"
+    local hyp_id="K${K}_Nlr${N_lr}_ec${entropy_coef}"
 
     # Check if this is the baseline configuration
     if [ "$K" = "0" ]; then
@@ -121,7 +114,7 @@ run_on_gpu() {
  
     # (2) Train: jointly optimize pose with or without hyperparameters
     if [ "$use_rlgs" = true ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting training with hyperparams: K=${K}, N_lr=${N_lr}, reshuffle_interval=${reshuffle_interval}, reward_set_len=${reward_set_len}, entropy_coef=${entropy_coef}..."
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting training with hyperparams: K=${K}, N_lr=${N_lr}, entropy_coef=${entropy_coef}..."
         CUDA_VISIBLE_DEVICES=${GPU_ID} python ./train_rlgs.py \
         -s ${SOURCE_PATH} \
         -m ${MODEL_PATH} \
@@ -133,8 +126,6 @@ run_on_gpu() {
         --rlgs_enabled \
         --rlgs_K ${K} \
         --rlgs_N_lr ${N_lr} \
-        --rlgs_reshuffle_interval ${reshuffle_interval} \
-        --rlgs_reward_set_len ${reward_set_len} \
         --rlgs_entropy_coef ${entropy_coef} \
         > ${MODEL_PATH}/02_train.log 2>&1
     else
@@ -204,12 +195,12 @@ for DATASET in "${DATASETS[@]}"; do
                 current_task=$((current_task + 1))
                 
                 # Parse hyperparameter configuration
-                IFS=',' read -r K N_lr reshuffle_interval reward_set_len entropy_coef <<< "$config"
+                IFS=',' read -r K N_lr entropy_coef <<< "$config"
                 
                 if [ "$K" = "0" ]; then
                     echo "Processing task $current_task / $total_tasks: ${DATASET}/${SCENE} WITHOUT RLGS (baseline)"
                 else
-                    echo "Processing task $current_task / $total_tasks: ${DATASET}/${SCENE} with config K=${K}, N_lr=${N_lr}, reshuffle_interval=${reshuffle_interval}, reward_set_len=${reward_set_len}, entropy_coef=${entropy_coef}"
+                    echo "Processing task $current_task / $total_tasks: ${DATASET}/${SCENE} with config K=${K}, N_lr=${N_lr}, entropy_coef=${entropy_coef}"
                 fi
 
                 # Get available GPU
@@ -223,7 +214,7 @@ for DATASET in "${DATASETS[@]}"; do
                 done
 
                 # Run the task in the background
-                (run_on_gpu $GPU_ID "$DATASET" "$SCENE" "$N_VIEW" "$gs_train_iter" "$K" "$N_lr" "$reshuffle_interval" "$reward_set_len" "$entropy_coef") &
+                (run_on_gpu $GPU_ID "$DATASET" "$SCENE" "$N_VIEW" "$gs_train_iter" "$K" "$N_lr" "$entropy_coef") &
 
                 # Small delay to ensure GPU marking takes effect
                 sleep 2

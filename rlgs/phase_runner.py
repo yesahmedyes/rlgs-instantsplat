@@ -41,7 +41,6 @@ class PhaseRunner:
         state: torch.Tensor,
         gaussians,
         training_views: List,
-        reward_views: List,
         render_func: Callable,
         render_args: tuple,
         group_mapping: Dict[str, int],
@@ -61,9 +60,7 @@ class PhaseRunner:
 
         action = torch.ones(len(group_mapping))
 
-        baseline_loss = self._evaluate_action(
-            action, gaussians, training_views, reward_views, render_func, render_args, group_mapping, initial_state
-        )
+        baseline_loss = self._evaluate_action(action, gaussians, training_views, render_func, render_args, group_mapping, initial_state)
 
         print("\nBaseline loss:", baseline_loss)
 
@@ -72,9 +69,7 @@ class PhaseRunner:
             action, log_prob, new_hidden = policy.sample_action(state, hidden_state)
 
             # Evaluate sampled action
-            sampled_loss = self._evaluate_action(
-                action, gaussians, training_views, reward_views, render_func, render_args, group_mapping, initial_state
-            )
+            sampled_loss = self._evaluate_action(action, gaussians, training_views, render_func, render_args, group_mapping, initial_state)
 
             print("\nSampled loss:", sampled_loss)
 
@@ -97,13 +92,12 @@ class PhaseRunner:
         action: torch.Tensor,
         gaussians,
         training_views: List,
-        reward_views: List,
         render_func: Callable,
         render_args: tuple,
         group_mapping: Dict[str, int],
         initial_state: dict,
     ) -> float:
-        """Evaluate a sampled action and return average loss"""
+        """Evaluate a sampled action and return average loss on all training views"""
 
         # Restore initial state
         self._restore_model_state(gaussians, initial_state)
@@ -111,10 +105,11 @@ class PhaseRunner:
         # Apply learning rate scaling
         apply_lr_scaling(gaussians.optimizer, action, group_mapping)
 
-        # Phase 1: Run K steps on training views (with gradient updates)
-        for step in range(self.K):
-            view_idx = step % len(training_views)
-            viewpoint_cam = training_views[view_idx]
+        # Run for number of training views on training views (with gradient updates)
+        total_loss_during_training = 0.0
+
+        for step in range(len(training_views)):
+            viewpoint_cam = training_views[step]
             pose = gaussians.get_RT(viewpoint_cam.uid)
 
             render_pkg = render_func(viewpoint_cam, gaussians, *render_args, camera_pose=pose)
@@ -130,42 +125,40 @@ class PhaseRunner:
                 ssim_value = ssim(image, gt_image)
 
             loss = 0.8 * Ll1 + 0.2 * (1.0 - ssim_value)
+            total_loss_during_training += loss.item()
 
             loss.backward()
 
             gaussians.optimizer.step()
             gaussians.optimizer.zero_grad(set_to_none=True)
 
-        # Phase 2: Evaluate on reward views (no gradient updates)
-        total_eval_loss = 0.0
+        # # Evaluate on all training views (no gradient updates)
+        # total_eval_loss = 0.0
 
-        with torch.no_grad():
-            for viewpoint_cam in reward_views:
-                pose = gaussians.get_RT(viewpoint_cam.uid)
+        # with torch.no_grad():
+        #     for viewpoint_cam in training_views:
+        #         pose = gaussians.get_RT(viewpoint_cam.uid)
 
-                render_pkg = render_func(viewpoint_cam, gaussians, *render_args, camera_pose=pose)
-                image = render_pkg["render"]
-                gt_image = viewpoint_cam.original_image.cuda()
+        #         render_pkg = render_func(viewpoint_cam, gaussians, *render_args, camera_pose=pose)
+        #         image = render_pkg["render"]
+        #         gt_image = viewpoint_cam.original_image.cuda()
 
-                # Calculate all metrics
-                Ll1 = l1_loss(image, gt_image)
+        #         # Calculate all metrics
+        #         Ll1 = l1_loss(image, gt_image)
 
-                if FUSED_SSIM_AVAILABLE:
-                    ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
-                else:
-                    ssim_value = ssim(image, gt_image)
+        #         if FUSED_SSIM_AVAILABLE:
+        #             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+        #         else:
+        #             ssim_value = ssim(image, gt_image)
 
-                # psnr_value = psnr(image, gt_image).mean()
-                # lpips_value = lpips(image, gt_image, net_type="vgg").mean()
+        #         loss = 0.8 * Ll1 + 0.2 * (1.0 - ssim_value)
 
-                loss = 0.8 * Ll1 + 0.2 * (1.0 - ssim_value)
+        #         total_eval_loss += loss.item()
 
-                total_eval_loss += loss.item()
+        # # Restore original learning rates
+        # restore_optimizer_lrs(gaussians.optimizer, group_mapping)
 
-        # Restore original learning rates
-        restore_optimizer_lrs(gaussians.optimizer, group_mapping)
-
-        return total_eval_loss / len(reward_views)
+        return total_loss_during_training / len(training_views)
 
     def _save_model_state(self, gaussians) -> dict:
         ms = {

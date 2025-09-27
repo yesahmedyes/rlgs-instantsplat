@@ -29,7 +29,7 @@ from utils.pose_utils import get_camera_from_tensor
 from utils.sfm_utils import save_time
 
 # RLGS imports
-from rlgs import RLLRPolicy, PhaseRunner, RewardViewSampler, ActionSpaces, StateEncoder
+from rlgs import RLLRPolicy, PhaseRunner, ActionSpaces, StateEncoder
 from rlgs.config import RLGSConfig, add_rlgs_args, create_rlgs_config_from_args
 from rlgs.utils import save_optimizer_lrs, apply_lr_scaling
 
@@ -161,8 +161,8 @@ def training_with_rlgs(
     if rlgs_config.enabled:
         print("🚀 Initializing RLGS components...")
 
-        # Initialize RLGS components
-        reward_sampler = RewardViewSampler(scene.getTrainCameras(), rlgs_config.reward_set_len, rlgs_config.reshuffle_interval)
+        # Get all training cameras (no reward view separation)
+        training_cameras = scene.getTrainCameras()
 
         action_spaces = ActionSpaces(rlgs_config.lr_groups, rlgs_config.lr_action_bounds)
         state_encoder = StateEncoder(opt.iterations)
@@ -194,13 +194,11 @@ def training_with_rlgs(
         prev_loss = None
 
         print(f"✅ RLGS initialized with {len(rlgs_config.lr_groups)} LR groups")
-    else:
-        reward_sampler = None
 
     iter_start = torch.cuda.Event(enable_timing=True)
     iter_end = torch.cuda.Event(enable_timing=True)
 
-    viewpoint_stack = scene.getTrainCameras().copy() if not rlgs_config.enabled else reward_sampler.get_train_views()
+    viewpoint_stack = scene.getTrainCameras().copy()
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
 
@@ -222,8 +220,7 @@ def training_with_rlgs(
                 policy=policy,
                 state=state,
                 gaussians=gaussians,
-                training_views=reward_sampler.get_train_views(),
-                reward_views=reward_sampler.get_reward_views(),
+                training_views=training_cameras,
                 render_func=render,
                 render_args=(pipe, background),
                 group_mapping=group_mapping,
@@ -254,7 +251,7 @@ def training_with_rlgs(
 
                 # Pick a random Camera from train views
                 if not viewpoint_stack:
-                    viewpoint_stack = reward_sampler.get_train_views()
+                    viewpoint_stack = training_cameras.copy()
                     viewpoint_indices = list(range(len(viewpoint_stack)))
 
                 rand_idx = randint(0, len(viewpoint_indices) - 1)
@@ -373,8 +370,6 @@ def training_with_rlgs(
                 for i, lr_scale in enumerate(best_action):
                     tb_writer.add_scalar(f"rlgs/lr_scale_{rlgs_config.lr_groups[i]}", lr_scale.item(), global_step)
 
-            # Maybe reshuffle reward views
-            reward_sampler.maybe_reshuffle(global_step)
     else:
         # Original training loop (without RLGS)
         for iteration in range(first_iter, opt.iterations + 1):

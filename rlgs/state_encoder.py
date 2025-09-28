@@ -1,51 +1,52 @@
 import torch
-import torch.nn as nn
-from typing import Optional
+from typing import Optional, List
 
 
 class StateEncoder:
     """
     Encodes training state for RL policies.
-    State includes previous phase loss and iteration information.
+    State includes previous phase losses and iteration information.
     """
 
-    def __init__(self, max_iterations: int = 30000):
-        """
-        Args:
-            max_iterations: Maximum training iterations for normalization
-        """
+    def __init__(self, max_iterations: int = 30000, lr_groups: Optional[List[str]] = None):
         self.max_iterations = max_iterations
-        self.prev_phase_loss = None
+        self.prev_ssim_loss = None
+        self.prev_l1_loss = None
+        self.lr_groups = lr_groups or ["xyz", "f_dc", "f_rest", "opacity", "scaling", "rotation"]
 
-    def encode_state(self, prev_phase_loss: Optional[float], iteration: int) -> torch.Tensor:
+    def encode_state(
+        self,
+        iteration: int,
+        prev_ssim_loss: float = 1.0,
+        prev_l1_loss: float = 1.0,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+    ) -> torch.Tensor:
         """
-        Encode current training state.
-
         Args:
-            prev_phase_loss: Average loss from previous phase (None for first phase)
             iteration: Current iteration number
-
-        Returns:
-            state: [loss_normalized, iteration_normalized] tensor
+            prev_ssim_loss: SSIM loss from previous phase
+            prev_l1_loss: L1 loss from previous phase
+            optimizer: If provided, appends per-group rl_scale features
         """
-        # Handle first phase
-        if prev_phase_loss is None:
-            loss_normalized = 0.5  # Neutral starting value for first phase
-        else:
-            # Use loss directly since it's already in [0,1] range
-            loss_normalized = prev_phase_loss
-
-        # Normalize iteration progress
         iteration_normalized = min(iteration / self.max_iterations, 1.0)
 
-        state = torch.tensor([loss_normalized, iteration_normalized], dtype=torch.float32, device="cuda")
+        comps = [iteration_normalized, prev_ssim_loss, prev_l1_loss]
 
-        return state.unsqueeze(0)  # Add batch dimension
+        if optimizer is not None:
+            # Only use the groups specified in lr_groups, in that order
+            for name in self.lr_groups:
+                pg = next((g for g in optimizer.param_groups if g.get("name", "") == name), None)
 
-    def update_phase_loss(self, phase_loss: float):
-        """Update the stored phase loss for next state encoding"""
-        self.prev_phase_loss = phase_loss
+                if pg is None:
+                    comps.append(1.0)
+                else:
+                    scale = pg.get("rl_scale", 1.0)
+                    comps.append(float(scale))
 
-    def get_prev_phase_loss(self) -> Optional[float]:
-        """Get the previous phase loss"""
-        return self.prev_phase_loss
+        state = torch.tensor(comps, dtype=torch.float32, device="cuda")
+
+        return state.unsqueeze(0)
+
+    def update_losses(self, ssim_loss: float, l1_loss: float):
+        self.prev_ssim_loss = ssim_loss
+        self.prev_l1_loss = l1_loss

@@ -13,7 +13,7 @@ import argparse
 
 def parse_hyperparameter_string(hyp_string):
     """Parse hyperparameter string to extract individual values."""
-    # Format: K{K}_Nlr{N_lr}_ri{reshuffle_interval}_rsl{reward_set_len}_ec{entropy_coef}
+    # Format: K{K}_Nlr{N_lr}
     parts = hyp_string.split("_")
     params = {}
 
@@ -22,12 +22,6 @@ def parse_hyperparameter_string(hyp_string):
             params["K"] = int(part[1:])
         elif part.startswith("Nlr"):
             params["N_lr"] = float(part[3:])
-        elif part.startswith("ri"):
-            params["reshuffle_interval"] = int(part[2:])
-        elif part.startswith("rsl"):
-            params["reward_set_len"] = int(part[3:])
-        elif part.startswith("ec"):
-            params["entropy_coef"] = float(part[2:])
 
     return params
 
@@ -86,9 +80,7 @@ def collect_metrics(outputs_dir):
                     "n_views": n_views,
                     "K": params.get("K", "N/A"),
                     "N_lr": params.get("N_lr", "N/A"),
-                    "reshuffle_interval": params.get("reshuffle_interval", "N/A"),
-                    "reward_set_len": params.get("reward_set_len", "N/A"),
-                    "entropy_coef": params.get("entropy_coef", "N/A"),
+                    "views": n_views,
                     "ssim": averages.get("ssim", 0.0),
                     "psnr": averages.get("psnr", 0.0),
                     "lpips": averages.get("lpips", 0.0),
@@ -126,14 +118,14 @@ def generate_csv_files(results, results_dir):
         hyp_groups[hyp_key].append(result)
 
     # CSV headers for scene files
-    scene_headers = ["K", "N_lr", "reshuffle_interval", "reward_set_len", "entropy_coef", "views", "ssim", "psnr", "lpips"]
+    scene_headers = ["K", "N_lr", "views", "ssim", "psnr", "lpips"]
 
     # Generate CSV files for each scene
     total_experiments = 0
     for scene_key in sorted(scene_groups.keys()):
         scene_results = scene_groups[scene_key]
         # Sort results within each scene by hyperparameters (K first, then others)
-        scene_results.sort(key=lambda x: (x["K"], x["N_lr"], x["reshuffle_interval"], x["reward_set_len"], x["entropy_coef"]))
+        scene_results.sort(key=lambda x: (x["K"], x["N_lr"]))
 
         total_experiments += len(scene_results)
 
@@ -150,10 +142,7 @@ def generate_csv_files(results, results_dir):
                     [
                         result["K"],
                         result["N_lr"],
-                        result["reshuffle_interval"],
-                        result["reward_set_len"],
-                        result["entropy_coef"],
-                        result["n_views"],
+                        result["views"],
                         f"{result['ssim']:.4f}",
                         f"{result['psnr']:.2f}",
                         f"{result['lpips']:.4f}",
@@ -167,9 +156,6 @@ def generate_csv_files(results, results_dir):
     total_headers = [
         "K",
         "N_lr",
-        "reshuffle_interval",
-        "reward_set_len",
-        "entropy_coef",
         "avg_views",
         "avg_ssim",
         "avg_psnr",
@@ -187,9 +173,6 @@ def generate_csv_files(results, results_dir):
             key=lambda hyp: (
                 hyp_groups[hyp][0]["K"],
                 hyp_groups[hyp][0]["N_lr"],
-                hyp_groups[hyp][0]["reshuffle_interval"],
-                hyp_groups[hyp][0]["reward_set_len"],
-                hyp_groups[hyp][0]["entropy_coef"],
             ),
         )
 
@@ -200,7 +183,7 @@ def generate_csv_files(results, results_dir):
             avg_ssim = sum(r["ssim"] for r in hyp_results) / len(hyp_results)
             avg_psnr = sum(r["psnr"] for r in hyp_results) / len(hyp_results)
             avg_lpips = sum(r["lpips"] for r in hyp_results) / len(hyp_results)
-            avg_views = sum(int(r["n_views"]) for r in hyp_results) / len(hyp_results)
+            avg_views = sum(int(r["views"]) for r in hyp_results) / len(hyp_results)
             scenes_count = len(hyp_results)
 
             # Get hyperparameter values from the first result
@@ -210,9 +193,6 @@ def generate_csv_files(results, results_dir):
                 [
                     first_result["K"],
                     first_result["N_lr"],
-                    first_result["reshuffle_interval"],
-                    first_result["reward_set_len"],
-                    first_result["entropy_coef"],
                     f"{avg_views:.1f}",
                     f"{avg_ssim:.4f}",
                     f"{avg_psnr:.2f}",
@@ -273,12 +253,10 @@ def main():
         print("-" * 60)
 
         # Sort by numeric values for console output too
-        scene_results = sorted(
-            scene_groups[scene_key], key=lambda x: (x["K"], x["N_lr"], x["reshuffle_interval"], x["reward_set_len"], x["entropy_coef"])
-        )
-        for result in scene_results:
-            hyp_params = f"K={result['K']},N_lr={result['N_lr']},ri={result['reshuffle_interval']},rsl={result['reward_set_len']},ec={result['entropy_coef']}"
-            print(f"{hyp_params:<40} {result['n_views']:<6} {result['ssim']:<8.4f} {result['psnr']:<8.2f} {result['lpips']:<8.4f}")
+        sorted_results = sorted(scene_groups[scene_key], key=lambda x: (x["K"], x["N_lr"]))
+        for result in sorted_results:
+            hyp_params = f"K={result['K']},N_lr={result['N_lr']}"
+            print(f"{hyp_params:<40} {result['views']:<6} {result['ssim']:<8.4f} {result['psnr']:<8.2f} {result['lpips']:<8.4f}")
 
 
 if __name__ == "__main__":

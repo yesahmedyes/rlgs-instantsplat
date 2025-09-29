@@ -86,29 +86,18 @@ class RLLRPolicy(nn.Module):
             new_hidden: Updated hidden state
         """
         action_dist, new_hidden = self.forward(state, hidden)
-        action = action_dist.sample()
-        log_prob = action_dist.log_prob(action).sum(dim=-1)
 
-        # Apply bounds using sigmoid
+        raw_action = action_dist.sample()
+
         min_val, max_val = self.action_bounds
-        action = torch.sigmoid(action) * (max_val - min_val) + min_val
+        tanh_raw = torch.tanh(raw_action)
+        action = tanh_raw * (max_val - min_val) / 2 + (max_val + min_val) / 2
+
+        log_prob = action_dist.log_prob(raw_action).sum(dim=-1)
+
+        # Jacobian correction for tanh transformation
+        jacobian = (1 - tanh_raw**2) * (max_val - min_val) / 2
+        jacobian_correction = torch.log(jacobian)
+        log_prob += jacobian_correction.sum(dim=-1)
 
         return action, log_prob, new_hidden
-
-    def compute_log_prob(
-        self,
-        state: torch.Tensor,
-        action: torch.Tensor,
-        hidden: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        """Compute log probability of given action"""
-        # Transform action back to unbounded space
-        min_val, max_val = self.action_bounds
-
-        normalized_action = (action - min_val) / (max_val - min_val)
-        unbounded_action = torch.logit(torch.clamp(normalized_action, 1e-6, 1 - 1e-6))
-
-        action_dist, _ = self.forward(state, hidden)
-        log_prob = action_dist.log_prob(unbounded_action).sum(dim=-1)
-
-        return log_prob

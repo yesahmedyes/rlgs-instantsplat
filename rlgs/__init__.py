@@ -3,7 +3,7 @@ from .policies import RLLRPolicy
 from .phase_runner import PhaseRunner
 from .action_spaces import ActionSpaces
 from .state_encoder import StateEncoder
-from .utils import gradient_clip, compute_entropy, compute_log_prob
+from .utils import gradient_clip
 
 __all__ = [
     "RLLRPolicy",
@@ -11,6 +11,4 @@ __all__ = [
     "ActionSpaces",
     "StateEncoder",
     "gradient_clip",
-    "compute_entropy",
-    "compute_log_prob",
 ]

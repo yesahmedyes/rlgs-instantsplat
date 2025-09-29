@@ -14,9 +14,8 @@ class RLGSConfig:
     N_lr: int = 3  # Number of LR action trials
 
     # Policy parameters
-    policy_lr: float = 1e-4
+    policy_lr: float = 1e-3
     grad_clip: float = 2.4
-    entropy_coef: float = 0.01
 
     # Learning rate groups and bounds
     lr_groups: List[str] = None
@@ -41,9 +40,8 @@ def add_rlgs_args(parser):
     group.add_argument("--rlgs_enabled", action="store_true", default=False, help="Enable RLGS training")
     group.add_argument("--rlgs_K", type=int, default=20, help="Steps per RLGS phase")
     group.add_argument("--rlgs_N_lr", type=int, default=3, help="Number of LR action trials per phase")
-    group.add_argument("--rlgs_policy_lr", type=float, default=1e-4, help="Learning rate for RL policy")
+    group.add_argument("--rlgs_policy_lr", type=float, default=1e-3, help="Learning rate for RL policy")
     group.add_argument("--rlgs_grad_clip", type=float, default=2.4, help="Gradient clipping for policy")
-    group.add_argument("--rlgs_entropy_coef", type=float, default=0.01, help="Entropy coefficient for policy")
 
     return group
 
@@ -54,7 +52,6 @@ def create_rlgs_config_from_args(args) -> RLGSConfig:
         enabled=getattr(args, "rlgs_enabled", False),
         K=getattr(args, "rlgs_K", 20),
         N_lr=getattr(args, "rlgs_N_lr", 3),
-        policy_lr=getattr(args, "rlgs_policy_lr", 1e-4),
+        policy_lr=getattr(args, "rlgs_policy_lr", 1e-3),
         grad_clip=getattr(args, "rlgs_grad_clip", 2.4),
-        entropy_coef=getattr(args, "rlgs_entropy_coef", 0.01),
     )

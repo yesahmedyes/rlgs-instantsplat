@@ -185,7 +185,6 @@ def training_with_rlgs(
             N_lr=rlgs_config.N_lr,
             policy_lr=rlgs_config.policy_lr,
             grad_clip=rlgs_config.grad_clip,
-            entropy_coef=rlgs_config.entropy_coef,
         )
 
         # Save original learning rates
@@ -384,7 +383,6 @@ def training_with_rlgs(
             if tb_writer and global_step % 100 == 0:
                 tb_writer.add_scalar("rlgs/reward", best_reward, global_step)
                 tb_writer.add_scalar("rlgs/policy_loss", policy_info["policy_loss"], global_step)
-                tb_writer.add_scalar("rlgs/entropy_loss", policy_info["entropy_loss"], global_step)
 
                 for i, lr_scale in enumerate(best_action):
                     tb_writer.add_scalar(f"rlgs/lr_scale_{rlgs_config.lr_groups[i]}", lr_scale.item(), global_step)

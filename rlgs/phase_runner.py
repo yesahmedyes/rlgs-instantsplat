@@ -26,15 +26,13 @@ class PhaseRunner:
         self,
         K: int = 20,
         N_lr: int = 3,
-        policy_lr: float = 1e-4,
+        policy_lr: float = 1e-3,
         grad_clip: float = 2.4,
-        entropy_coef: float = 0.01,
     ):
         self.K = K  # Steps per phase
         self.N_lr = N_lr  # Number of LR action trials
         self.policy_lr = policy_lr
         self.grad_clip = grad_clip
-        self.entropy_coef = entropy_coef
 
     def try_actions(
         self,
@@ -83,7 +81,7 @@ class PhaseRunner:
             if reward > best_reward:
                 best_reward = reward
                 best_action = action.detach().clone()
-                best_log_prob = log_prob.detach().clone()
+                best_log_prob = log_prob
 
         self._restore_model_state(gaussians, initial_state)
 
@@ -193,22 +191,14 @@ class PhaseRunner:
         log_prob: torch.Tensor,
         hidden_state: Optional[torch.Tensor] = None,
     ):
-        """Update policy using vanilla REINFORCE with entropy bonus"""
+        """Update policy using vanilla REINFORCE"""
 
         # Policy loss: -log_prob * reward (no baseline subtraction)
         policy_loss = -log_prob * reward
 
-        # Entropy bonus
-        action_dist, _ = policy.forward(state, hidden_state)
-        entropy = action_dist.entropy().sum()
-        entropy_loss = -self.entropy_coef * entropy
-
-        # Total loss
-        total_loss = policy_loss + entropy_loss
-
         # Update policy
         policy_optimizer.zero_grad()
-        total_loss.backward()
+        policy_loss.backward()
 
         # Gradient clipping
         torch.nn.utils.clip_grad_norm_(policy.parameters(), self.grad_clip)
@@ -217,7 +207,6 @@ class PhaseRunner:
 
         return {
             "policy_loss": policy_loss.item(),
-            "entropy_loss": entropy_loss.item(),
-            "total_loss": total_loss.item(),
+            "total_loss": policy_loss.item(),
             "reward": reward,
         }

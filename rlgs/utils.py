@@ -7,16 +7,6 @@ def gradient_clip(model: nn.Module, max_norm: float = 2.4):
     return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
 
-def compute_entropy(action_dist) -> torch.Tensor:
-    """Compute entropy of action distribution"""
-    return action_dist.entropy().sum(dim=-1)
-
-
-def compute_log_prob(action_dist, action: torch.Tensor) -> torch.Tensor:
-    """Compute log probability of action"""
-    return action_dist.log_prob(action).sum(dim=-1)
-
-
 def apply_lr_scaling(optimizer: torch.optim.Optimizer, action: torch.Tensor, group_mapping: dict):
     """
     Apply learning rate scaling to optimizer parameter groups.

@@ -41,7 +41,7 @@ get_all_gpus() {
 
 # GPUs with low memory usage (for info only)
 get_all_available_gpus() {
-    local mem_threshold=500
+    local mem_threshold=10000
     nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits | awk -v threshold="$mem_threshold" -F', ' '
     $2 < threshold { print $1 }
     '
@@ -49,7 +49,7 @@ get_all_available_gpus() {
 
 # Atomically acquire a free GPU by creating its lock dir
 get_available_gpu() {
-    local mem_threshold=500
+    local mem_threshold=10000
     for gpu in $(get_all_gpus); do
         local mem_used
         mem_used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits --id="$gpu" | tr -d ' ')
@@ -172,7 +172,7 @@ for gpu in $all_gpus; do
 done
 
 # After gs_train_iter=1000
-GPU_LOCK_DIR="/tmp/rlgs_gpu_locks"
+GPU_LOCK_DIR="./tmp/rlgs_gpu_locks"
 mkdir -p "$GPU_LOCK_DIR"
 
 # Main loop - now includes hyperparameter configurations

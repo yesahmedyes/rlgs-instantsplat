@@ -60,11 +60,10 @@ class PhaseRunner:
         # Save initial state
         initial_state = self._save_model_state(gaussians)
 
-        action = torch.ones(len(group_mapping))
-
-        baseline_loss = self._evaluate_action(
-            action, gaussians, reshuffled_training_views, render_func, render_args, group_mapping, initial_state
-        )
+        # Sample all actions and evaluate them first
+        actions = []
+        log_probs = []
+        sampled_losses = []
 
         for _ in range(self.N_lr):
             # Sample action
@@ -75,13 +74,22 @@ class PhaseRunner:
                 action, gaussians, reshuffled_training_views, render_func, render_args, group_mapping, initial_state
             )
 
-            # Compute reward: R = M(h_orig) - M(h)
-            reward = baseline_loss - sampled_loss
+            actions.append(action.detach().clone())
+            log_probs.append(log_prob)
+            sampled_losses.append(sampled_loss)
+
+        # Compute baseline as average of all sampled losses
+        baseline_loss = sum(sampled_losses) / len(sampled_losses)
+
+        # Now compute rewards and find the best action
+        for i in range(self.N_lr):
+            # Compute reward: R = baseline_loss - M(h)
+            reward = baseline_loss - sampled_losses[i]
 
             if reward > best_reward:
                 best_reward = reward
-                best_action = action.detach().clone()
-                best_log_prob = log_prob
+                best_action = actions[i]
+                best_log_prob = log_probs[i]
 
         self._restore_model_state(gaussians, initial_state)
 

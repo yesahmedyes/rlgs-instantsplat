@@ -26,7 +26,10 @@ class RLLRPolicy(nn.Module):
         # GRU for sequential state processing
         self.gru = nn.GRU(input_size=state_dim, hidden_size=hidden_dim, batch_first=True)
 
-        # Output heads for mean and log_std
+        # Global action head (deterministic)
+        self.global_head = nn.Linear(hidden_dim, 1)
+
+        # Local action heads for mean and log_std (per-group, stochastic)
         self.mean_head = nn.Linear(hidden_dim, num_groups)
         self.log_std_head = nn.Linear(hidden_dim, num_groups)
 
@@ -41,10 +44,13 @@ class RLLRPolicy(nn.Module):
             elif "bias" in name:
                 nn.init.constant_(param, 0.0)
 
-        # Initialize mean head to output 1.0 (no scaling initially)
+        # Initialize heads to output 1.0 (no scaling initially)
         nn.init.constant_(self.mean_head.bias, 0.0)
+        nn.init.constant_(self.global_head.bias, 0.0)
 
-    def forward(self, state: torch.Tensor, hidden: Optional[torch.Tensor] = None) -> Tuple[torch.distributions.Normal, torch.Tensor]:
+    def forward(
+        self, state: torch.Tensor, hidden: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.distributions.Normal, torch.Tensor, torch.Tensor]:
         """
         Forward pass through policy.
 
@@ -53,7 +59,8 @@ class RLLRPolicy(nn.Module):
             hidden: Previous hidden state
 
         Returns:
-            action_dist: Normal distribution over actions
+            local_action_dist: Normal distribution over local actions
+            global_action: Deterministic global action [batch_size, 1]
             new_hidden: Updated hidden state
         """
         if state.dim() == 2:
@@ -63,7 +70,10 @@ class RLLRPolicy(nn.Module):
         gru_out, new_hidden = self.gru(state, hidden)
         gru_out = gru_out[:, -1]  # Take last timestep
 
-        # Compute mean and std
+        # Compute global action (deterministic)
+        global_raw = self.global_head(gru_out)
+
+        # Compute local mean and std (stochastic)
         mean = self.mean_head(gru_out)
         log_std = self.log_std_head(gru_out)
 
@@ -71,32 +81,44 @@ class RLLRPolicy(nn.Module):
         log_std = torch.clamp(log_std, min=-2.0, max=2.0)
         std = torch.exp(log_std)
 
-        # Create Normal distribution
-        action_dist = torch.distributions.Normal(mean, std)
+        # Create Normal distribution for local actions
+        local_action_dist = torch.distributions.Normal(mean, std)
 
-        return action_dist, new_hidden
+        return local_action_dist, global_raw, new_hidden
 
     def sample_action(self, state: torch.Tensor, hidden: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Sample action and return log probability.
 
         Returns:
-            action: Sampled action [batch_size, num_groups]
-            log_prob: Log probability of action
+            action: Combined action (global * local) [batch_size, num_groups]
+            log_prob: Log probability of local action
             new_hidden: Updated hidden state
         """
-        action_dist, new_hidden = self.forward(state, hidden)
+        local_action_dist, global_raw, new_hidden = self.forward(state, hidden)
 
-        raw_action = action_dist.sample()
+        # Sample local actions
+        raw_local = local_action_dist.sample()
 
+        # Bound both global and local actions to action_bounds using tanh
         min_val, max_val = self.action_bounds
-        tanh_raw = torch.tanh(raw_action)
-        action = tanh_raw * (max_val - min_val) / 2 + (max_val + min_val) / 2
 
-        log_prob = action_dist.log_prob(raw_action).sum(dim=-1)
+        # Apply tanh transformation to global action
+        tanh_global = torch.tanh(global_raw)
+        global_action = tanh_global * (max_val - min_val) / 2 + (max_val + min_val) / 2
 
-        # Jacobian correction for tanh transformation
-        jacobian = (1 - tanh_raw**2) * (max_val - min_val) / 2
+        # Apply tanh transformation to local actions
+        tanh_local = torch.tanh(raw_local)
+        local_action = tanh_local * (max_val - min_val) / 2 + (max_val + min_val) / 2
+
+        # Combine multiplicatively: final_action = global * local
+        action = global_action * local_action
+
+        # Log probability is only for the stochastic local actions
+        log_prob = local_action_dist.log_prob(raw_local).sum(dim=-1)
+
+        # Jacobian correction for tanh transformation of local actions
+        jacobian = (1 - tanh_local**2) * (max_val - min_val) / 2
         jacobian_correction = torch.log(jacobian)
         log_prob += jacobian_correction.sum(dim=-1)
 

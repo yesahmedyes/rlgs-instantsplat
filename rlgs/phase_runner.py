@@ -45,13 +45,14 @@ class PhaseRunner:
         group_mapping: Dict[str, int],
         original_lrs: Dict[str, float],
         hidden_state: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, float, torch.Tensor]:
+    ) -> Dict:
         """
-        Try multiple actions and return the best one based on reward.
+        Try multiple actions and return all actions with their rewards.
+        Returns a dictionary containing the best action for execution and all actions for policy update.
         """
         best_action = None
-        best_log_prob = None
         best_reward = float("-inf")
+        best_action_idx = None
         new_hidden = hidden_state
 
         reshuffled_training_views = training_views.copy()
@@ -81,19 +82,31 @@ class PhaseRunner:
         # Compute baseline as average of all sampled losses
         baseline_loss = sum(sampled_losses) / len(sampled_losses)
 
-        # Now compute rewards and find the best action
+        # Compute rewards for all actions and find the best one
+        rewards = []
         for i in range(self.N_lr):
             # Compute reward: R = baseline_loss - M(h)
             reward = baseline_loss - sampled_losses[i]
+            rewards.append(reward)
 
             if reward > best_reward:
                 best_reward = reward
                 best_action = actions[i]
-                best_log_prob = log_probs[i]
+                best_action_idx = i
 
         self._restore_model_state(gaussians, initial_state)
 
-        return best_action, best_log_prob, best_reward, new_hidden.detach() if new_hidden is not None else None
+        # Return dictionary with all actions and rewards for batch policy update
+        return {
+            "best_action": best_action,
+            "best_action_idx": best_action_idx,
+            "all_actions": actions,
+            "all_log_probs": log_probs,
+            "all_rewards": rewards,
+            "best_reward": best_reward,
+            "avg_reward": sum(rewards) / len(rewards),
+            "hidden_state": new_hidden.detach() if new_hidden is not None else None,
+        }
 
     def _evaluate_action(
         self,
@@ -194,19 +207,27 @@ class PhaseRunner:
         policy,
         policy_optimizer: torch.optim.Optimizer,
         state: torch.Tensor,
-        action: torch.Tensor,
-        reward: float,
-        log_prob: torch.Tensor,
+        actions: List[torch.Tensor],
+        rewards: List[float],
+        log_probs: List[torch.Tensor],
         hidden_state: Optional[torch.Tensor] = None,
     ):
-        """Update policy using vanilla REINFORCE"""
+        """Update policy using batch REINFORCE with all sampled actions"""
 
-        # Policy loss: -log_prob * reward (no baseline subtraction)
-        policy_loss = -log_prob * reward
+        # Compute policy loss for all actions
+        total_policy_loss = 0.0
+
+        for log_prob, reward in zip(log_probs, rewards):
+            # Each action contributes to the loss weighted by its reward
+            policy_loss = -log_prob * reward
+            total_policy_loss += policy_loss
+
+        # Average the loss over all actions
+        avg_policy_loss = total_policy_loss / len(actions)
 
         # Update policy
         policy_optimizer.zero_grad()
-        policy_loss.backward()
+        avg_policy_loss.backward()
 
         # Gradient clipping
         torch.nn.utils.clip_grad_norm_(policy.parameters(), self.grad_clip)
@@ -214,7 +235,9 @@ class PhaseRunner:
         policy_optimizer.step()
 
         return {
-            "policy_loss": policy_loss.item(),
-            "total_loss": policy_loss.item(),
-            "reward": reward,
+            "policy_loss": avg_policy_loss.item(),
+            "total_loss": avg_policy_loss.item(),
+            "avg_reward": sum(rewards) / len(rewards),
+            "best_reward": max(rewards),
+            "worst_reward": min(rewards),
         }

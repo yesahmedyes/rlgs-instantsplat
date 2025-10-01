@@ -228,8 +228,8 @@ def training_with_rlgs(
                 optimizer=gaussians.optimizer,
             )
 
-            # Try actions and get best one
-            best_action, best_log_prob, best_reward, hidden_state = phase_runner.try_actions(
+            # Try actions and get all actions with rewards
+            action_results = phase_runner.try_actions(
                 policy=policy,
                 state=state,
                 gaussians=gaussians,
@@ -240,6 +240,15 @@ def training_with_rlgs(
                 original_lrs=original_lrs,
                 hidden_state=hidden_state,
             )
+
+            # Extract results
+            best_action = action_results["best_action"]
+            all_actions = action_results["all_actions"]
+            all_log_probs = action_results["all_log_probs"]
+            all_rewards = action_results["all_rewards"]
+            best_reward = action_results["best_reward"]
+            avg_reward = action_results["avg_reward"]
+            hidden_state = action_results["hidden_state"]
 
             # Apply best action and run real phase
             apply_lr_scaling(gaussians.optimizer, best_action, group_mapping)
@@ -368,21 +377,23 @@ def training_with_rlgs(
             prev_ssim_loss = phase_ssim_loss / rlgs_config.K
             prev_l1_loss = phase_l1_loss / rlgs_config.K
 
-            # Update policy
+            # Update policy using ALL actions and rewards (batch REINFORCE)
             policy_info = phase_runner.update_policy(
                 policy=policy,
                 policy_optimizer=policy_optimizer,
                 state=state,
-                action=best_action,
-                reward=best_reward,
-                log_prob=best_log_prob,
+                actions=all_actions,
+                rewards=all_rewards,
+                log_probs=all_log_probs,
                 hidden_state=hidden_state,
             )
 
             # Log RLGS info
             if tb_writer and global_step % 100 == 0:
-                tb_writer.add_scalar("rlgs/reward", best_reward, global_step)
+                tb_writer.add_scalar("rlgs/best_reward", best_reward, global_step)
+                tb_writer.add_scalar("rlgs/avg_reward", avg_reward, global_step)
                 tb_writer.add_scalar("rlgs/policy_loss", policy_info["policy_loss"], global_step)
+                tb_writer.add_scalar("rlgs/worst_reward", policy_info["worst_reward"], global_step)
 
                 for i, lr_scale in enumerate(best_action):
                     tb_writer.add_scalar(f"rlgs/lr_scale_{rlgs_config.lr_groups[i]}", lr_scale.item(), global_step)

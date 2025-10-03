@@ -1,27 +1,30 @@
 import torch
 import torch.nn as nn
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
 
 
 class RLLRPolicy(nn.Module):
     """
-    GRU-based policy for learning rate scaling (RLLR).
-    Maps state to Gaussian action distribution over LR multipliers.
+    GRU-based policy for learning rate deltas (RLLR).
+    Maps state to Gaussian action distribution over LR delta terms.
     """
 
     def __init__(
         self,
-        state_dim: int = 9,  # [iteration, prev_ssim_loss, prev_l1_loss] + rl_scale per group
+        state_dim: int = 9,
         hidden_dim: int = 64,
-        num_groups: int = 6,  # xyz, f_dc, f_rest, opacity, scaling, rotation
-        action_bounds: Tuple[float, float] = (0.5, 2.0),
+        num_groups: int = 6,
+        # Change: delta bounds instead of scaling bounds
+        delta_bounds: Tuple[float, float] = (-0.001, 0.001),  # Additive deltas
+        base_lrs: Optional[Dict[str, float]] = None,  # Reference base LRs for normalization
     ):
         super().__init__()
 
-        self.state_dim = state_dim  # [iteration, prev_ssim_loss, prev_l1_loss] + rl_scale per group
+        self.state_dim = state_dim
         self.hidden_dim = hidden_dim
         self.num_groups = num_groups
-        self.action_bounds = action_bounds
+        self.delta_bounds = delta_bounds
+        self.base_lrs = base_lrs or {}
 
         # GRU for sequential state processing
         self.gru = nn.GRU(input_size=state_dim, hidden_size=hidden_dim, batch_first=True)
@@ -88,10 +91,10 @@ class RLLRPolicy(nn.Module):
 
     def sample_action(self, state: torch.Tensor, hidden: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Sample action and return log probability.
+        Sample delta terms and return log probability.
 
         Returns:
-            action: Combined action (global * local) [batch_size, num_groups]
+            action: Combined delta terms (global + local) [batch_size, num_groups]
             log_prob: Log probability of local action
             new_hidden: Updated hidden state
         """
@@ -100,19 +103,19 @@ class RLLRPolicy(nn.Module):
         # Sample local actions
         raw_local = local_action_dist.sample()
 
-        # Bound both global and local actions to action_bounds using tanh
-        min_val, max_val = self.action_bounds
+        # Bound both global and local actions to delta_bounds using tanh
+        min_val, max_val = self.delta_bounds
 
-        # Apply tanh transformation to global action
+        # Apply tanh transformation to global delta
         tanh_global = torch.tanh(global_raw)
-        global_action = tanh_global * (max_val - min_val) / 2 + (max_val + min_val) / 2
+        global_delta = tanh_global * (max_val - min_val) / 2 + (max_val + min_val) / 2
 
-        # Apply tanh transformation to local actions
+        # Apply tanh transformation to local deltas
         tanh_local = torch.tanh(raw_local)
-        local_action = tanh_local * (max_val - min_val) / 2 + (max_val + min_val) / 2
+        local_delta = tanh_local * (max_val - min_val) / 2 + (max_val + min_val) / 2
 
-        # Combine multiplicatively: final_action = global * local
-        action = global_action * local_action
+        # Combine additively: final_delta = global_delta + local_delta
+        action = global_delta + local_delta
 
         # Log probability is only for the stochastic local actions
         log_prob = local_action_dist.log_prob(raw_local).sum(dim=-1)

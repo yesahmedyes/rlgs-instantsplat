@@ -31,7 +31,7 @@ from utils.sfm_utils import save_time
 # RLGS imports
 from rlgs import RLLRPolicy, PhaseRunner, ActionSpaces, StateEncoder
 from rlgs.config import RLGSConfig, add_rlgs_args, create_rlgs_config_from_args
-from rlgs.utils import save_optimizer_lrs, apply_lr_scaling
+from rlgs.utils import save_optimizer_lrs, apply_lr_deltas
 
 # Add LR recorder import
 from utils.lr_recorder import LRRecorder
@@ -167,7 +167,7 @@ def training_with_rlgs(
         # Get all training cameras (no reward view separation)
         training_cameras = scene.getTrainCameras()
 
-        action_spaces = ActionSpaces(rlgs_config.lr_groups, rlgs_config.lr_action_bounds)
+        action_spaces = ActionSpaces(rlgs_config.lr_groups, rlgs_config.lr_delta_bounds)
         state_encoder = StateEncoder(opt.iterations)
 
         # Initialize RL policy
@@ -175,7 +175,7 @@ def training_with_rlgs(
             state_dim=rlgs_config.state_dim,
             hidden_dim=rlgs_config.hidden_dim,
             num_groups=len(rlgs_config.lr_groups),
-            action_bounds=rlgs_config.lr_action_bounds,
+            delta_bounds=rlgs_config.lr_delta_bounds,
         ).cuda()
 
         policy_optimizer = torch.optim.Adam(policy.parameters(), lr=rlgs_config.policy_lr)
@@ -251,7 +251,7 @@ def training_with_rlgs(
             hidden_state = action_results["hidden_state"]
 
             # Apply best action and run real phase
-            apply_lr_scaling(gaussians.optimizer, best_action, group_mapping)
+            apply_lr_deltas(gaussians.optimizer, best_action, group_mapping)
 
             # Record learning rates after applying scaling
             lr_recorder.record_lrs(iteration=global_step, optimizer=gaussians.optimizer, group_mapping=group_mapping)

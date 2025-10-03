@@ -1,12 +1,9 @@
 import torch
-import copy
 import random
-from typing import Dict, List, Tuple, Optional, Callable
-from .utils import apply_lr_scaling, restore_optimizer_lrs
+from typing import Dict, List, Optional, Callable
+from .utils import apply_lr_deltas
 
 from utils.loss_utils import l1_loss, ssim
-from utils.image_utils import psnr
-from lpipsPyTorch import lpips
 
 try:
     from fused_ssim import fused_ssim
@@ -123,8 +120,8 @@ class PhaseRunner:
         # Restore initial state
         self._restore_model_state(gaussians, initial_state)
 
-        # Apply learning rate scaling
-        apply_lr_scaling(gaussians.optimizer, action, group_mapping)
+        # Apply learning rate deltas
+        apply_lr_deltas(gaussians.optimizer, action, group_mapping)
 
         # Run for number of training views on training views (with gradient updates)
         total_loss = 0.0

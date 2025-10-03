@@ -22,12 +22,13 @@ class LRRecorder:
         self.iterations = []
         self.base_lr_data = {group: [] for group in lr_groups}
         self.lr_data = {group: [] for group in lr_groups}
+        self.delta_data = {group: [] for group in lr_groups}
 
         os.makedirs(output_dir, exist_ok=True)
 
     def record_lrs(self, iteration: int, optimizer: torch.optim.Optimizer, group_mapping: Dict):
         """
-        Record current learning rates and scaling factors.
+        Record current learning rates and delta values.
 
         Args:
             iteration: Current global step/iteration
@@ -41,9 +42,11 @@ class LRRecorder:
                 idx = group_mapping[group_name]
                 base_lr = optimizer.param_groups[idx]["base_lr"]
                 lr = optimizer.param_groups[idx]["lr"]
+                delta = optimizer.param_groups[idx].get("rl_delta", 0.0)
 
                 self.lr_data[group_name].append(lr)
                 self.base_lr_data[group_name].append(base_lr)
+                self.delta_data[group_name].append(delta)
 
     def plot_lrs(self):
         """
@@ -57,18 +60,26 @@ class LRRecorder:
         # Create individual plots for each group
         for group_name in self.lr_groups:
             if group_name in self.lr_data and self.lr_data[group_name]:
-                plt.figure(figsize=(10, 6))
+                plt.figure(figsize=(12, 8))
 
-                # Plot both base_lr and lr
+                # Plot base_lr, current lr, and delta
+                plt.subplot(2, 1, 1)
                 plt.plot(self.iterations, self.base_lr_data[group_name], label=f"Base LR ({group_name})", linestyle="--", alpha=0.7)
                 plt.plot(self.iterations, self.lr_data[group_name], label=f"Current LR ({group_name})", linewidth=2)
-
-                plt.xlabel("Iteration")
                 plt.ylabel("Learning Rate")
                 plt.title(f"Learning Rate Evolution - {group_name}")
                 plt.legend()
                 plt.grid(True, alpha=0.3)
                 plt.yscale("log")  # Log scale is often better for LR visualization
+
+                # Plot delta values
+                plt.subplot(2, 1, 2)
+                plt.plot(self.iterations, self.delta_data[group_name], label=f"Delta ({group_name})", color="red", linewidth=2)
+                plt.axhline(y=0, color="black", linestyle="-", alpha=0.3)
+                plt.ylabel("Delta Value")
+                plt.xlabel("Iteration")
+                plt.legend()
+                plt.grid(True, alpha=0.3)
 
                 # Save individual plot
                 plot_path = os.path.join(self.output_dir, f"{group_name}.png")

@@ -7,30 +7,35 @@ def gradient_clip(model: nn.Module, max_norm: float = 2.4):
     return torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
 
-def apply_lr_scaling(optimizer: torch.optim.Optimizer, action: torch.Tensor, group_mapping: dict):
+def apply_lr_deltas(optimizer: torch.optim.Optimizer, deltas: torch.Tensor, group_mapping: dict):
     """
-    Apply learning rate scaling to optimizer parameter groups.
+    Apply learning rate deltas to optimizer parameter groups.
 
     Args:
         optimizer: PyTorch optimizer
-        action: LR scaling factors [num_groups] or [batch_size, num_groups]
+        deltas: LR delta terms [num_groups] or [batch_size, num_groups]
         group_mapping: Mapping from group name to action index
-        original_lrs: Original learning rates for each group
     """
     # Handle batch dimension if present
-    if action.dim() > 1:
-        action = action.squeeze(0)
+    if deltas.dim() > 1:
+        deltas = deltas.squeeze(0)
 
     for param_group in optimizer.param_groups:
         group_name = param_group.get("name", "")
 
         if group_name in group_mapping:
             idx = group_mapping[group_name]
-            scale = action[idx].item()
+            delta = deltas[idx].item()
 
-            param_group["rl_scale"] = scale
+            # Store the delta for tracking
+            param_group["rl_delta"] = delta
             base = param_group.get("base_lr", param_group["lr"])
-            param_group["lr"] = base * scale
+
+            # Apply delta: new_lr = base_lr + delta
+            new_lr = base + delta
+
+            # Ensure learning rate stays positive
+            param_group["lr"] = max(new_lr, 1e-8)
 
 
 def save_optimizer_lrs(optimizer):
@@ -50,7 +55,7 @@ def restore_optimizer_lrs(optimizer, group_mapping: dict):
         group_name = pg.get("name", "")
 
         if group_name in group_mapping:
-            pg["rl_scale"] = 1.0
+            pg["rl_delta"] = 0.0
 
             base = pg.get("base_lr", pg["lr"])
             pg["lr"] = base

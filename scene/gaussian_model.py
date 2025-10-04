@@ -178,49 +178,55 @@ class GaussianModel:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
 
         # base_lr = the original learning rates
-        # lr = base_lr + rl_delta
+        # lr = base_lr * rl_global_scale + rl_local_delta
 
         l = [
             {
                 "params": [self._xyz],
                 "lr": training_args.position_lr_init * self.spatial_lr_scale,
                 "base_lr": training_args.position_lr_init * self.spatial_lr_scale,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "xyz",
             },
             {
                 "params": [self._features_dc],
                 "lr": training_args.feature_lr * 10,
                 "base_lr": training_args.feature_lr * 10,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "f_dc",
             },
             {
                 "params": [self._features_rest],
                 "lr": training_args.feature_lr / 20.0 * 10,
                 "base_lr": training_args.feature_lr / 20.0 * 10,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "f_rest",
             },
             {
                 "params": [self._opacity],
                 "lr": training_args.opacity_lr,
                 "base_lr": training_args.opacity_lr,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "opacity",
             },
             {
                 "params": [self._scaling],
                 "lr": training_args.scaling_lr * 10,
                 "base_lr": training_args.scaling_lr * 10,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "scaling",
             },
             {
                 "params": [self._rotation],
                 "lr": training_args.rotation_lr * 10,
                 "base_lr": training_args.rotation_lr * 10,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "rotation",
             },
         ]
@@ -230,7 +236,8 @@ class GaussianModel:
                 "params": [self.P],
                 "lr": training_args.rotation_lr * 0.1,
                 "base_lr": training_args.rotation_lr * 0.1,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "pose",
             }
         ]
@@ -266,42 +273,48 @@ class GaussianModel:
                 "per_point_lr": self.per_point_lr,
                 "lr": training_args.position_lr_init * self.spatial_lr_scale,
                 "base_lr": training_args.position_lr_init * self.spatial_lr_scale,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "xyz",
             },
             {
                 "params": [self._features_dc],
                 "lr": training_args.feature_lr * 10,
                 "base_lr": training_args.feature_lr * 10,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "f_dc",
             },
             {
                 "params": [self._features_rest],
                 "lr": training_args.feature_lr / 20.0 * 10,
                 "base_lr": training_args.feature_lr / 20.0 * 10,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "f_rest",
             },
             {
                 "params": [self._opacity],
                 "lr": training_args.opacity_lr,
                 "base_lr": training_args.opacity_lr,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "opacity",
             },
             {
                 "params": [self._scaling],
                 "lr": training_args.scaling_lr * 10,
                 "base_lr": training_args.scaling_lr * 10,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "scaling",
             },
             {
                 "params": [self._rotation],
                 "lr": training_args.rotation_lr * 10,
                 "base_lr": training_args.rotation_lr * 10,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "rotation",
             },
         ]
@@ -311,7 +324,8 @@ class GaussianModel:
                 "params": [self.P],
                 "lr": training_args.rotation_lr * 0.1,
                 "base_lr": training_args.rotation_lr * 0.1,
-                "rl_delta": 0.0,
+                "rl_global_scale": 1.0,
+                "rl_local_delta": 0.0,
                 "name": "pose",
             },
         ]
@@ -345,9 +359,12 @@ class GaussianModel:
             else:
                 base = param_group.get("base_lr", param_group["lr"])
 
-            rl_delta = param_group.get("rl_delta", 0.0)
+            rl_global_scale = param_group.get("rl_global_scale", 1.0)
+            rl_local_delta = param_group.get("rl_local_delta", 0.0)
 
-            param_group["lr"] = max(base + rl_delta, 1e-8)
+            # Apply hybrid formula: lr = base_lr * global_scale + local_delta
+            new_lr = base * rl_global_scale + rl_local_delta
+            param_group["lr"] = max(new_lr, 1e-8)
 
     def construct_list_of_attributes(self):
         l = ["x", "y", "z", "nx", "ny", "nz"]

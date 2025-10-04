@@ -22,13 +22,14 @@ class LRRecorder:
         self.iterations = []
         self.base_lr_data = {group: [] for group in lr_groups}
         self.lr_data = {group: [] for group in lr_groups}
-        self.delta_data = {group: [] for group in lr_groups}
+        self.global_scale_data = []
+        self.local_delta_data = {group: [] for group in lr_groups}
 
         os.makedirs(output_dir, exist_ok=True)
 
     def record_lrs(self, iteration: int, optimizer: torch.optim.Optimizer, group_mapping: Dict):
         """
-        Record current learning rates and delta values.
+        Record current learning rates and hybrid components.
 
         Args:
             iteration: Current global step/iteration
@@ -37,16 +38,26 @@ class LRRecorder:
         """
         self.iterations.append(iteration)
 
+        # Record global scale (from first group, all should be the same)
+        global_scale = 1.0
+        for group_name in self.lr_groups:
+            if group_name in group_mapping:
+                idx = group_mapping[group_name]
+                global_scale = optimizer.param_groups[idx].get("rl_global_scale", 1.0)
+                break
+        self.global_scale_data.append(global_scale)
+
+        # Record per-group data
         for group_name in self.lr_groups:
             if group_name in group_mapping:
                 idx = group_mapping[group_name]
                 base_lr = optimizer.param_groups[idx]["base_lr"]
                 lr = optimizer.param_groups[idx]["lr"]
-                delta = optimizer.param_groups[idx].get("rl_delta", 0.0)
+                local_delta = optimizer.param_groups[idx].get("rl_local_delta", 0.0)
 
                 self.lr_data[group_name].append(lr)
                 self.base_lr_data[group_name].append(base_lr)
-                self.delta_data[group_name].append(delta)
+                self.local_delta_data[group_name].append(local_delta)
 
     def plot_lrs(self):
         """
@@ -72,11 +83,11 @@ class LRRecorder:
                 plt.grid(True, alpha=0.3)
                 plt.yscale("log")  # Log scale is often better for LR visualization
 
-                # Plot delta values
+                # Plot local delta values
                 plt.subplot(2, 1, 2)
-                plt.plot(self.iterations, self.delta_data[group_name], label=f"Delta ({group_name})", color="red", linewidth=2)
+                plt.plot(self.iterations, self.local_delta_data[group_name], label=f"Local Delta ({group_name})", color="red", linewidth=2)
                 plt.axhline(y=0, color="black", linestyle="-", alpha=0.3)
-                plt.ylabel("Delta Value")
+                plt.ylabel("Local Delta Value")
                 plt.xlabel("Iteration")
                 plt.legend()
                 plt.grid(True, alpha=0.3)
@@ -85,3 +96,18 @@ class LRRecorder:
                 plot_path = os.path.join(self.output_dir, f"{group_name}.png")
                 plt.savefig(plot_path, dpi=300, bbox_inches="tight")
                 plt.close()
+
+        # Create global scale plot
+        if self.global_scale_data:
+            plt.figure(figsize=(12, 6))
+            plt.plot(self.iterations, self.global_scale_data, label="Global Scale", color="blue", linewidth=2)
+            plt.axhline(y=1.0, color="black", linestyle="--", alpha=0.5, label="Neutral (1.0)")
+            plt.xlabel("Iteration")
+            plt.ylabel("Global Scale Factor")
+            plt.title("Global Learning Rate Scale Evolution")
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+
+            plot_path = os.path.join(self.output_dir, "global_scale.png")
+            plt.savefig(plot_path, dpi=300, bbox_inches="tight")
+            plt.close()

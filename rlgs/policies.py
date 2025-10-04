@@ -5,8 +5,9 @@ from typing import Tuple, Optional, Dict
 
 class RLLRPolicy(nn.Module):
     """
-    GRU-based policy for learning rate deltas (RLLR).
-    Maps state to Gaussian action distribution over LR delta terms.
+    GRU-based policy for hybrid LR control (RLLR).
+    Maps state to global scaling + local delta terms.
+    Final LR = base_lr * global_scale + local_delta
     """
 
     def __init__(
@@ -14,8 +15,9 @@ class RLLRPolicy(nn.Module):
         state_dim: int = 9,
         hidden_dim: int = 64,
         num_groups: int = 6,
-        # Change: delta bounds instead of scaling bounds
-        delta_bounds: Tuple[float, float] = (-0.001, 0.001),  # Additive deltas
+        # Hybrid bounds: global scaling + local deltas
+        global_scale_bounds: Tuple[float, float] = (0.5, 2.0),  # Global scaling
+        local_delta_bounds: Tuple[float, float] = (-0.001, 0.001),  # Local deltas
         base_lrs: Optional[Dict[str, float]] = None,  # Reference base LRs for normalization
     ):
         super().__init__()
@@ -23,7 +25,8 @@ class RLLRPolicy(nn.Module):
         self.state_dim = state_dim
         self.hidden_dim = hidden_dim
         self.num_groups = num_groups
-        self.delta_bounds = delta_bounds
+        self.global_scale_bounds = global_scale_bounds
+        self.local_delta_bounds = local_delta_bounds
         self.base_lrs = base_lrs or {}
 
         # GRU for sequential state processing
@@ -47,9 +50,9 @@ class RLLRPolicy(nn.Module):
             elif "bias" in name:
                 nn.init.constant_(param, 0.0)
 
-        # Initialize heads to output 1.0 (no scaling initially)
-        nn.init.constant_(self.mean_head.bias, 0.0)
-        nn.init.constant_(self.global_head.bias, 0.0)
+        # Initialize heads appropriately
+        nn.init.constant_(self.mean_head.bias, 0.0)  # Local deltas start at 0.0
+        nn.init.constant_(self.global_head.bias, 0.0)  # Global scale starts at 1.0 (after tanh)
 
     def forward(
         self, state: torch.Tensor, hidden: Optional[torch.Tensor] = None
@@ -62,8 +65,8 @@ class RLLRPolicy(nn.Module):
             hidden: Previous hidden state
 
         Returns:
-            local_action_dist: Normal distribution over local actions
-            global_action: Deterministic global action [batch_size, 1]
+            local_action_dist: Normal distribution over local delta actions
+            global_action: Deterministic global scale action [batch_size, 1]
             new_hidden: Updated hidden state
         """
         if state.dim() == 2:
@@ -89,13 +92,16 @@ class RLLRPolicy(nn.Module):
 
         return local_action_dist, global_raw, new_hidden
 
-    def sample_action(self, state: torch.Tensor, hidden: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def sample_action(
+        self, state: torch.Tensor, hidden: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Sample delta terms and return log probability.
+        Sample hybrid actions (global scale + local deltas) and return log probability.
 
         Returns:
-            action: Combined delta terms (global + local) [batch_size, num_groups]
-            log_prob: Log probability of local action
+            global_scale: Global scaling factor [batch_size, 1]
+            local_deltas: Local delta terms [batch_size, num_groups]
+            log_prob: Log probability of local actions
             new_hidden: Updated hidden state
         """
         local_action_dist, global_raw, new_hidden = self.forward(state, hidden)
@@ -103,26 +109,22 @@ class RLLRPolicy(nn.Module):
         # Sample local actions
         raw_local = local_action_dist.sample()
 
-        # Bound both global and local actions to delta_bounds using tanh
-        min_val, max_val = self.delta_bounds
-
-        # Apply tanh transformation to global delta
+        # Bound global action to scale bounds
+        min_scale, max_scale = self.global_scale_bounds
         tanh_global = torch.tanh(global_raw)
-        global_delta = tanh_global * (max_val - min_val) / 2 + (max_val + min_val) / 2
+        global_scale = tanh_global * (max_scale - min_scale) / 2 + (max_scale + min_scale) / 2
 
-        # Apply tanh transformation to local deltas
+        # Bound local actions to delta bounds
+        min_delta, max_delta = self.local_delta_bounds
         tanh_local = torch.tanh(raw_local)
-        local_delta = tanh_local * (max_val - min_val) / 2 + (max_val + min_val) / 2
-
-        # Combine additively: final_delta = global_delta + local_delta
-        action = global_delta + local_delta
+        local_deltas = tanh_local * (max_delta - min_delta) / 2 + (max_delta + min_delta) / 2
 
         # Log probability is only for the stochastic local actions
         log_prob = local_action_dist.log_prob(raw_local).sum(dim=-1)
 
         # Jacobian correction for tanh transformation of local actions
-        jacobian = (1 - tanh_local**2) * (max_val - min_val) / 2
+        jacobian = (1 - tanh_local**2) * (max_delta - min_delta) / 2
         jacobian_correction = torch.log(jacobian)
         log_prob += jacobian_correction.sum(dim=-1)
 
-        return action, log_prob, new_hidden
+        return global_scale, local_deltas, log_prob, new_hidden

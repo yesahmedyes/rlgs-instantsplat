@@ -1,7 +1,7 @@
 import torch
 import random
 from typing import Dict, List, Optional, Callable
-from .utils import apply_lr_deltas
+from .utils import apply_lr_hybrid
 
 from utils.loss_utils import l1_loss, ssim
 
@@ -59,20 +59,20 @@ class PhaseRunner:
         initial_state = self._save_model_state(gaussians)
 
         # Sample all actions and evaluate them first
-        actions = []
+        actions = []  # Will store (global_scale, local_deltas) tuples
         log_probs = []
         sampled_losses = []
 
         for _ in range(self.N_lr):
-            # Sample action
-            action, log_prob, new_hidden = policy.sample_action(state, hidden_state)
+            # Sample hybrid action
+            global_scale, local_deltas, log_prob, new_hidden = policy.sample_action(state, hidden_state)
 
             # Evaluate sampled action
             sampled_loss = self._evaluate_action(
-                action, gaussians, reshuffled_training_views, render_func, render_args, group_mapping, initial_state
+                global_scale, local_deltas, gaussians, reshuffled_training_views, render_func, render_args, group_mapping, initial_state
             )
 
-            actions.append(action.detach().clone())
+            actions.append((global_scale.detach().clone(), local_deltas.detach().clone()))
             log_probs.append(log_prob)
             sampled_losses.append(sampled_loss)
 
@@ -107,7 +107,8 @@ class PhaseRunner:
 
     def _evaluate_action(
         self,
-        action: torch.Tensor,
+        global_scale: torch.Tensor,
+        local_deltas: torch.Tensor,
         gaussians,
         training_views: List,
         render_func: Callable,
@@ -115,13 +116,13 @@ class PhaseRunner:
         group_mapping: Dict[str, int],
         initial_state: dict,
     ) -> float:
-        """Evaluate a sampled action and return average loss on all training views"""
+        """Evaluate a sampled hybrid action and return average loss on all training views"""
 
         # Restore initial state
         self._restore_model_state(gaussians, initial_state)
 
-        # Apply learning rate deltas
-        apply_lr_deltas(gaussians.optimizer, action, group_mapping)
+        # Apply hybrid learning rate control
+        apply_lr_hybrid(gaussians.optimizer, global_scale, local_deltas, group_mapping)
 
         # Run for number of training views on training views (with gradient updates)
         total_loss = 0.0

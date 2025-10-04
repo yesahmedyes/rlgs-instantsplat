@@ -26,22 +26,30 @@ class StateEncoder:
             iteration: Current iteration number
             prev_ssim_loss: SSIM loss from previous phase
             prev_l1_loss: L1 loss from previous phase
-            optimizer: If provided, appends per-group rl_delta features
+            optimizer: If provided, appends global_scale + per-group local_delta features
         """
         iteration_normalized = min(iteration / self.max_iterations, 1.0)
 
         comps = [iteration_normalized, prev_ssim_loss, prev_l1_loss]
 
         if optimizer is not None:
-            # Only use the groups specified in lr_groups, in that order
+            # Add global scale (from first group, all groups should have same global scale)
+            global_scale = 1.0
+            for pg in optimizer.param_groups:
+                if pg.get("name", "") in self.lr_groups:
+                    global_scale = pg.get("rl_global_scale", 1.0)
+                    break
+            comps.append(float(global_scale))
+
+            # Add per-group local deltas
             for name in self.lr_groups:
                 pg = next((g for g in optimizer.param_groups if g.get("name", "") == name), None)
 
                 if pg is None:
                     comps.append(0.0)
                 else:
-                    delta = pg.get("rl_delta", 0.0)
-                    comps.append(float(delta))
+                    local_delta = pg.get("rl_local_delta", 0.0)
+                    comps.append(float(local_delta))
 
         state = torch.tensor(comps, dtype=torch.float32, device="cuda")
 
